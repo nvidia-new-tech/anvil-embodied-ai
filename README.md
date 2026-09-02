@@ -56,6 +56,7 @@ This repository is the embodied AI stack for the Anvil platform — data convers
 
 - [Installation](#installation)
 - [Usage](#usage)
+- [RTX PRO 6000 Shared Server](#rtx-pro-6000-shared-server)
 - [Project Structure](#project-structure)
 
 ---
@@ -124,6 +125,31 @@ Deploy trained models on a GPU PC via ROS2 CycloneDDS. All inference scenarios g
 
 ---
 
+## RTX PRO 6000 Shared Server
+
+The `scripts/pro6000/` directory contains local helper scripts for the RTX PRO 6000 training server. They assume user-owned clones under `/home`, per-user `.venv` environments, and shared assets under `/srv/shared`.
+
+Use these scripts only on that server layout:
+
+```bash
+scripts/pro6000/setup_shared_smolvla_venv.sh
+scripts/pro6000/setup_shared_pi_venv.sh
+scripts/pro6000/smolvla_training.sh
+scripts/pro6000/pi05_training.sh
+```
+
+The setup scripts install packages into the current clone's `.venv` while reusing:
+
+```bash
+/srv/shared/huggingface
+/srv/shared/cache/uv
+/srv/shared/cache/pip
+```
+
+Training outputs are written under `/srv/shared/model_zoo` by default. Datasets and job parameters are intentionally kept in the scripts so each server can override them without changing the general project workflow.
+
+---
+
 
 ## Project Structure
 
@@ -150,6 +176,7 @@ anvil-embodied-ai/
 ├── docker/
 │   └── inference/                 # Dockerfile + entrypoint
 ├── scripts/
+│   ├── pro6000/                   # RTX PRO 6000 shared-server helpers
 │   ├── run_inference.sh           # Entry point for all inference scenarios
 │   └── plot_monitor_csv.py        # Plot obs.state / raw_output / control_cmd from CSV
 ├── tests/
