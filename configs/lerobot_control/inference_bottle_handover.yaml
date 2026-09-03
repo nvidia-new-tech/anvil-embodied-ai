@@ -1,0 +1,183 @@
+# =============================================================================
+# LeRobot Inference Configuration — smolvla-bottle-handover (4 cameras, 2 arms)
+# =============================================================================
+# For model_zoo/smolvla-bottle-handover — SmolVLA finetuned on "lift the bottle
+# with the left hand, transfer it to the right hand, then place it back down".
+#
+# Differs from inference_flip.yaml in every way that matters, so do not reuse
+# that file here:
+#   - BOTH arms are commanded. This is a handover: the left hand does the first
+#     half of the task. inference_flip.yaml publishes only the right arm
+#     (correct there, because the flip dataset's left arm never moves) and would
+#     strand the left arm at its homing pose.
+#   - Four cameras. This checkpoint declares observation.images.waist alongside
+#     chest/wrist_l/wrist_r. Dropping waist still runs — SmolVLA just does not
+#     tokenise the missing view — but the policy was trained on four, so it is
+#     out-of-distribution and the actions measurably degrade. Use
+#     inference_no_waist.yaml only while the waist camera is physically absent.
+#   - Images are 270x480 here, not 480x640. Nothing to set: inference_node
+#     reads image_shape from the checkpoint's input_features
+#     (inference_node.py:214-216 via _read_checkpoint_metadata).
+#
+# task_description is left null on purpose — this checkpoint's anvil_config.json
+# carries the correct prompt and inference_node falls back to it (:231-234).
+# =============================================================================
+# Parameters set via ROS2 launch args (not in this file):
+#   model_path, device, control_frequency, image_height/width, echo_topic_only
+#
+# Model type and training flags are auto-read from the checkpoint.
+# Only set fields here to override checkpoint values or provide runtime config.
+
+# -----------------------------------------------------------------------------
+# Model
+# -----------------------------------------------------------------------------
+model:
+  # VLA task prompt — required for SmolVLA / Pi0 / Pi0.5, ignored for ACT / Diffusion
+  # Set to the task the model was trained/finetuned for.
+  task_description: null
+
+# -----------------------------------------------------------------------------
+# Inference Tuning (per model type)
+# -----------------------------------------------------------------------------
+# Override checkpoint defaults. null = use the value the model was trained with.
+# Only the section matching your model type is used; others are ignored.
+
+inference_tuning:
+
+  # ACT — lightweight transformer, single forward pass per chunk
+  act:
+    # n_action_steps: steps to execute before re-running inference.
+    #   Tuning: jittery → raise; hesitates → lower; GPU slow → lower
+    n_action_steps: null
+    # temporal_ensemble_coeff: re-infers every step, exponentially weights
+    #   overlapping predictions. Use 0.01 (paper default). Forces n_action_steps=1.
+    temporal_ensemble_coeff: null
+
+  # Diffusion — iterative denoising (UNet)
+  diffusion:
+    n_action_steps: null
+    # num_inference_steps: denoising steps at inference time.
+    #   Default (null) = num_train_timesteps (100). Set 10 for real-time (78ms vs 711ms).
+    num_inference_steps: 10
+
+  # RTC — VLA models only (pi0, pi0.5, smolvla), always enabled
+  #   Background thread runs inference continuously; control loop reads from ActionQueue.
+  rtc:
+    # inference_delay: fallback step-count for first inference before LatencyTracker kicks in.
+    #   Real-robot tuned: ceil(~330ms × 30Hz) ≈ 10. Auto-adjusted after first inference.
+    inference_delay: 10
+    # queue_trigger_threshold: re-trigger inference when queue depth ≤ this.
+    #   Set equal to chunk_size for maximum RTC overlap.
+    queue_trigger_threshold: 50
+    # execution_horizon: steps used from each chunk before re-inferring.
+    #   Higher → less frequent inference, slower reaction. Lower → faster reaction.
+    execution_horizon: 12
+    max_guidance_weight: 10.0
+    prefix_attention_schedule: EXP
+
+# -----------------------------------------------------------------------------
+# Joint Configuration
+# -----------------------------------------------------------------------------
+joint_state_topic: "/joint_states"
+
+joint_names:
+  # Joint order as output by ML model (must match training dataset)
+  model_joint_order:
+    - finger_joint1
+    - joint1
+    - joint2
+    - joint3
+    - joint4
+    - joint5
+    - joint6
+    - joint7
+
+  # Joint order expected by ROS2 forward_position_controller
+  controller_joint_order:
+    - joint1
+    - joint2
+    - joint3
+    - joint4
+    - joint5
+    - joint6
+    - joint7
+    - finger_joint1
+
+  # arm_mapping controls how observation.state is assembled:
+  #   Keys are used in joint name lookup: f"{observation_prefix}_{arm_key}_{joint_id}"
+  #   For bimanual Anvil robot: {l: left, r: right} → 2×8 = 16 DOF state
+  #   For pi05_libero_finetuned (single-arm, 8 DOF): use only one arm below.
+  arm_mapping:
+    l: left
+    r: right
+
+  # Anvil bimanual model uses position + velocity + effort as state inputs
+  state_features:
+    - position
+
+# -----------------------------------------------------------------------------
+# Arm Configuration
+# -----------------------------------------------------------------------------
+# ML model outputs: action = [left_joints..., right_joints...]
+# Split and publish to separate controller topics
+
+arms:
+  left:
+    ros_prefix: "follower_l"
+    command_topic: "/follower_l_forward_position_controller/commands"
+    action_start: 0
+    action_end: 8
+  right:
+    ros_prefix: "follower_r"
+    command_topic: "/follower_r_forward_position_controller/commands"
+    action_start: 8
+    action_end: 16
+
+# -----------------------------------------------------------------------------
+# Camera Configuration
+# -----------------------------------------------------------------------------
+
+cameras:
+  # fps: expected publish rate; warning fires when any camera drops below fps * 2/3.
+  #   Independent of control_frequency.
+  fps: 30.0
+
+  # mapping: ROS topic -> ML model camera name (must match training config)
+  mapping:
+    "/cam_waist/image_raw/compressed": "waist"
+    "/cam_wrist_r/image_raw/compressed": "wrist_r"
+    "/cam_chest/image_raw/compressed": "chest"
+    "/cam_wrist_l/image_raw/compressed": "wrist_l"
+
+  # fps_overrides: per-topic overrides for cameras running at a different rate.
+  #   Omit topics that match the global fps above.
+  # fps_overrides:
+  #   "/cam_wrist_r/image_raw/compressed": 60.0
+
+# -----------------------------------------------------------------------------
+# Safety Parameters
+# -----------------------------------------------------------------------------
+# max_position_delta: maximum joint position change per step (radians).
+#
+# min_position_delta: DISABLED HERE ON PURPOSE — the 0.05 that this file's
+#   parent (inference_default.yaml) recommends silently freezes both grippers.
+#
+#   ActionLimiter.process() applies ONE scalar threshold to every element of the
+#   action vector (action_limiter.py, `mask = |pending| >= threshold`); there is
+#   no per-joint setting. The vector mixes units: joint1..joint7 are radians,
+#   while finger_joint1 is PRISMATIC in METRES with a 0..0.05 m range (see
+#   anvil-loader config/openarm_v2_inference.yaml). A gripper's entire travel is
+#   therefore at or under the threshold, _pending_delta never crosses the mask,
+#   and the gripper stays pinned at whatever the first inference step published,
+#   while the arm joints cross 0.05 rad trivially and move normally.
+#
+#   That matters more here than anywhere else: this task grasps with the LEFT
+#   hand, hands over, and re-grasps with the RIGHT — a frozen gripper fails it
+#   at step one. Diagnosed and confirmed on the flip checkpoints; see the same
+#   note in inference_flip.yaml.
+#
+#   If motor friction later makes a deadband necessary, use ~0.002 (the loader's
+#   gripper_error_threshold is 0.003, same order) — never 0.05.
+safety:
+  max_position_delta: 0.1
+  min_position_delta: null
