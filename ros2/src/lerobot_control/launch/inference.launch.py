@@ -86,6 +86,9 @@ def generate_launch_description():
                 "monitor_enable": LaunchConfiguration("monitor_enable"),
             }
         ],
+        # Suppress the low-camera-fps WARN log (fires when a camera drops below
+        # fps * 2/3) — errors still surface normally.
+        arguments=["--ros-args", "--log-level", "lerobot_inference:=ERROR"],
     )
 
     return LaunchDescription(
