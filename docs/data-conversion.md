@@ -100,8 +100,12 @@ Pick the config that matches your recording setup. `--config` is technically opt
 | `openarm_bimanual_quest_16x9.yaml` | Quest VR | Bimanual | Command topics | 16:9 (480×270) |
 | `openarm_single_quest.yaml` | Quest VR | Single (right) | Command topics | 4:3 (640×480) |
 | `openarm_single_quest_afo.yaml` | Quest VR | Single (right) | Observation lookahead | 4:3 (640×480) |
+| `openarm_bimanual_quest_flip.yaml` | Quest VR | Bimanual, right only commanded | Command topics (right); left holds position | 4:3 (640×480) |
+| `openarm_bimanual_quest_bottle_handover.yaml` | Quest VR | Bimanual | Command topics | 16:9 (480×270) |
 
 `_16x9` variants set `image_resolution: [480, 270]`, an exact ÷4 downscale of 1920×1080 source cameras with zero letterbox padding. Use the matching `_16x9` config instead of the 4:3 default if your cameras natively output 1920×1080 — see [docs/training.md](training.md#diffusion) for details.
+
+**Bimanual rig, single arm commanded** — `openarm_bimanual_quest_flip.yaml` is for a bimanual rig where `/joint_states` still reports both arms (16-D) but only one arm has a command topic. The uncommanded arm has no action buffer at all, not merely an empty one; both `mcap-convert`'s streaming extractor and the non-streaming aligner fall back to that arm's own observation as its action (hold current position), keeping `observation.state`/`action` at the full 16-D so the dataset stays compatible with future bimanual tasks. If you don't need that compatibility, `openarm_single_quest.yaml` (true single-arm, 8-D) is simpler — but only use it if `/joint_states` reports solely the commanded arm's joints; it hasn't been verified against a topic that also carries the idle arm's joints.
 
 **action_from_observation** — used by `openarm_single_quest_afo.yaml` when `/follower_*/commands` was not recorded. Instead of reading from command topics, the converter derives actions from the follower's own joint positions shifted N frames forward in time. Enable in your conversion config YAML:
 
