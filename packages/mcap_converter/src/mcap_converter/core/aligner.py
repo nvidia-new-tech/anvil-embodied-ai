@@ -44,6 +44,8 @@ class TimeAligner:
         """
         self.config = config
         self.tolerance_s = tolerance_s
+        # arms already reported as using the observation-as-action fallback
+        self._action_fallback_logged: set = set()
 
     def align_sensors(
         self,
@@ -327,7 +329,20 @@ class TimeAligner:
         """
         key = (robot, "action")
         if key not in joint_data:
-            return
+            # No command topic was recorded for this arm. Fall back to its own
+            # observation, i.e. "hold current position" — the correct action for an
+            # arm that is present but never commanded (one-armed task on a bimanual
+            # robot). Without this the arm is dropped entirely and the dataset's
+            # action vector silently loses its dimensions.
+            key = (robot, "observation")
+            if key not in joint_data:
+                return
+            if robot not in self._action_fallback_logged:
+                self._action_fallback_logged.add(robot)
+                print(
+                    f"[aligner] no action topic for arm '{robot or 'default'}' — "
+                    f"using its observation as action (hold position)"
+                )
 
         action_data = joint_data[key]
         if action_data["timestamp"].size == 0:

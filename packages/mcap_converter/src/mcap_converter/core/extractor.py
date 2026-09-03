@@ -600,6 +600,8 @@ class BufferedStreamExtractor:
         # Reset implicitly per episode because BufferedStreamExtractor is
         # constructed fresh for each MCAP file (see convert.py).
         self._action_fill_stats: Dict[str, Dict[str, int]] = {}
+        # arms already reported as having no action topic (log once per extractor)
+        self._no_action_topic_logged: set = set()
 
     @staticmethod
     def _check_action_topics_present(mcap_path: str, action_topic_set: set) -> None:
@@ -986,6 +988,22 @@ class BufferedStreamExtractor:
                     return None
                 _, pos, _, _ = buffer[action_idx]
                 action_data[robot] = {"pos": pos.copy()}
+
+        # Pass 3: an arm with NO action topic at all (not merely an empty buffer)
+        # never appears in pass 2, so fill it from its own observation — "hold
+        # current position", the correct action for an arm that is present but
+        # never commanded (one-armed task on a bimanual robot). Without this the
+        # ALL-robots check below drops every frame and the episode yields 0 frames.
+        for robot in obs_data:
+            if robot and robot not in action_data:
+                action_data[robot] = {"pos": obs_data[robot]["pos"].copy()}
+                self._record_action_fill(robot, "fallback_to_observation")
+                if robot not in self._no_action_topic_logged:
+                    self._no_action_topic_logged.add(robot)
+                    print(
+                        f"[extractor] arm '{robot}' has no action topic — using its "
+                        f"observation as action (hold position)"
+                    )
 
         # Check if multi-robot (has named robots like 'left', 'right')
         robots = sorted([r for r in set(obs_data.keys()) | set(action_data.keys()) if r])
