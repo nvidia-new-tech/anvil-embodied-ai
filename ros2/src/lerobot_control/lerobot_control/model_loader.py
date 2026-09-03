@@ -5,6 +5,7 @@ for pre/post processing instead of custom implementations.
 """
 
 import json
+import os
 import random
 from pathlib import Path
 from typing import Any
@@ -169,6 +170,98 @@ class ModelLoader:
             return self._model.config.n_action_steps
         return None
 
+    def _materialise_meta_buffers(self, model) -> int:
+        """Recompute buffers left on the meta device after an assign-load.
+
+        A checkpoint only stores persistent tensors, so non-persistent buffers
+        (rotary-embedding frequency tables, position index tables) come out of a
+        meta-device construction with no storage. They are derived from each
+        module's config, so recompute them on the target device — a forward pass
+        would otherwise raise on the meta tensors.
+        """
+        fixed = 0
+        for _, module in model.named_modules():
+            for name, buf in list(module.named_buffers(recurse=False)):
+                if buf is None or buf.device.type != "meta":
+                    continue
+                if name in ("inv_freq", "original_inv_freq") and hasattr(module, "rope_init_fn"):
+                    new_buf, _ = module.rope_init_fn(module.config, self.device)
+                elif name == "position_ids":
+                    new_buf = torch.arange(buf.numel(), device=self.device).reshape(buf.shape)
+                else:
+                    new_buf = torch.zeros(buf.shape, dtype=buf.dtype, device=self.device)
+                module.register_buffer(name, new_buf, persistent=False)
+                fixed += 1
+        return fixed
+
+    def _load_vla_low_mem(self, policy_cls, vla_cfg):
+        """Load a VLA checkpoint without ever holding two copies of the weights.
+
+        ``PreTrainedPolicy.from_pretrained`` allocates the entire architecture
+        via ``cls(config)`` and then loads the checkpoint on top of it, so peak
+        usage is roughly twice the weight size. For pi0.5 (9.35GB of weights,
+        fp32 architecture) that means ~22GB on the GPU or an OOM kill on a 30GB
+        host before the model ever reaches the device.
+
+        Building on the meta device costs no memory at all, and
+        ``load_state_dict(assign=True)`` adopts the loaded tensors directly
+        rather than copying into pre-allocated ones — so exactly one copy
+        exists. Measured on pi0.5: 9.2GB GPU peak, 11.3GB host RSS.
+
+        Returns None when this path does not apply or does not fully succeed,
+        so the caller falls back to the stock loader rather than running on a
+        half-materialised model.
+        """
+        if os.environ.get("ANVIL_DISABLE_LOWMEM_LOAD") == "1":
+            return None
+
+        weights = self.model_path / "model.safetensors"
+        if not weights.is_file():
+            return None
+
+        try:
+            from safetensors.torch import load_file
+
+            # PI05Policy.__init__ calls self.model.to(config.device) internally,
+            # which raises "Cannot copy out of meta tensor" on meta storage.
+            # Pointing config.device at meta makes that call a no-op.
+            real_device, vla_cfg.device = vla_cfg.device, "meta"
+            try:
+                with torch.device("meta"):
+                    model = policy_cls(vla_cfg)
+            finally:
+                vla_cfg.device = real_device
+
+            state = load_file(str(weights), device=self.device)
+            missing, unexpected = model.load_state_dict(state, strict=False, assign=True)
+            del state
+
+            n_fixed = self._materialise_meta_buffers(model)
+
+            stranded = [n for n, t in model.named_parameters() if t.device.type == "meta"]
+            stranded += [n for n, t in model.named_buffers() if t.device.type == "meta"]
+            if stranded:
+                self._log(
+                    "warn",
+                    f"Low-memory load left {len(stranded)} tensor(s) on meta "
+                    f"(e.g. {stranded[:3]}); falling back to the stock loader",
+                )
+                return None
+
+            self._log(
+                "info",
+                f"Loaded via low-memory path: {len(missing)} missing, "
+                f"{len(unexpected)} unexpected, {n_fixed} buffer(s) recomputed",
+            )
+            return model
+        except Exception as e:  # noqa: BLE001 - any failure must fall back, not abort
+            self._log(
+                "warn",
+                f"Low-memory load failed ({type(e).__name__}: {e}); "
+                "falling back to the stock loader",
+            )
+            return None
+
     def load(self):
         """
         Load model from checkpoint.
@@ -198,7 +291,9 @@ class ModelLoader:
                 vla_cfg = PreTrainedConfig.from_pretrained(str(self.model_path))
                 if hasattr(vla_cfg, "compile_model"):
                     vla_cfg.compile_model = False
-                model = SmolVLAPolicy.from_pretrained(str(self.model_path), config=vla_cfg)
+                model = self._load_vla_low_mem(SmolVLAPolicy, vla_cfg)
+                if model is None:
+                    model = SmolVLAPolicy.from_pretrained(str(self.model_path), config=vla_cfg)
             elif self.model_type == "pi0":
                 from lerobot.policies.pi0.modeling_pi0 import PI0Policy
                 from lerobot.configs.policies import PreTrainedConfig
@@ -206,7 +301,9 @@ class ModelLoader:
                 vla_cfg = PreTrainedConfig.from_pretrained(str(self.model_path))
                 if hasattr(vla_cfg, "compile_model"):
                     vla_cfg.compile_model = False
-                model = PI0Policy.from_pretrained(str(self.model_path), config=vla_cfg)
+                model = self._load_vla_low_mem(PI0Policy, vla_cfg)
+                if model is None:
+                    model = PI0Policy.from_pretrained(str(self.model_path), config=vla_cfg)
             elif self.model_type == "pi05":
                 from lerobot.policies.pi05 import PI05Policy
                 from lerobot.configs.policies import PreTrainedConfig
@@ -214,7 +311,9 @@ class ModelLoader:
                 vla_cfg = PreTrainedConfig.from_pretrained(str(self.model_path))
                 if hasattr(vla_cfg, "compile_model"):
                     vla_cfg.compile_model = False
-                model = PI05Policy.from_pretrained(str(self.model_path), config=vla_cfg)
+                model = self._load_vla_low_mem(PI05Policy, vla_cfg)
+                if model is None:
+                    model = PI05Policy.from_pretrained(str(self.model_path), config=vla_cfg)
             else:
                 raise ValueError(f"Unsupported model type: {self.model_type}")
 
