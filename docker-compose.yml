@@ -19,6 +19,13 @@ services:
       - DEBUG=${DEBUG:-false}
       - MONITOR_ENABLE=${MONITOR_ENABLE:-false}
       - DISPLAY=${DISPLAY}
+      # HF_HUB_OFFLINE=1 keeps the VLA tokenizer load (PaliGemma for pi0/pi0.5,
+      # SmolVLM2 for smolvla) entirely inside HF_CACHE. Leave unset to allow the
+      # first-time download; set it once the tokenizer is cached so a gated repo
+      # or an offline network can never stall startup.
+      - HF_HUB_OFFLINE=${HF_HUB_OFFLINE:-}
+      # Set to 1 to bypass the meta-device low-memory model load in ModelLoader.
+      - ANVIL_DISABLE_LOWMEM_LOAD=${ANVIL_DISABLE_LOWMEM_LOAD:-}
     volumes:
       - /tmp/.X11-unix:/tmp/.X11-unix:rw
       # Both MODEL_PATH and CONFIG_FILE are host paths — tab-completion works naturally.
