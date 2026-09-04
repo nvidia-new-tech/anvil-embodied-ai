@@ -1,0 +1,202 @@
+# =============================================================================
+# LeRobot Inference Configuration — pi05-singlearm-flip (right arm only, 8 DOF)
+# =============================================================================
+# For model_zoo/pi05-singlearm-flip/001000 — Pi0.5 finetuned on the "flip the
+# package" task with a SINGLE-ARM dataset (openarm_single_quest converter:
+# joint_names.arms = {r: right}).
+#
+# ── How this differs from inference_flip.yaml (the bimanual pi0.5/smolvla one) ─
+#
+#   inference_flip.yaml feeds a 16-DOF state (l + r) to a checkpoint trained on
+#   16 DOF, then publishes only action[8:16]. THAT DOES NOT APPLY HERE. A
+#   single-arm checkpoint declares observation.state shape [8] and action shape
+#   [8], so:
+#     - arm_mapping lists ONLY `r` → an 8-value state vector.
+#     - arms.right slices action[0:8], not action[8:16].
+#   Getting either wrong is silent, not fatal: pi05 pads state to max_state_dim
+#   (32) and truncates action, so a 16-DOF state fed to an 8-DOF checkpoint just
+#   shifts every value into the wrong slot and the arm moves plausibly-but-wrong.
+#
+#   The "left arm is action[0:8] = hold position" warning in
+#   model_zoo/Pi05 Inference Note.md §3 is a BIMANUAL-dataset artifact. There is
+#   no left half here at all — nothing to drop.
+#
+# ── VERIFY BEFORE THE FIRST RUN (weights arrive 2026-09-04) ───────────────────
+#
+#   Cameras and state/action widths were confirmed against
+#   model_zoo/flip_pack_20260827_single_arm/pi05-flip-single-arm/checkpoints/005000
+#   on 2026-09-04: 3 cameras (chest, wrist_l, wrist_r), state [8], action [8],
+#   chunk_size 50. Re-check after any checkpoint swap with:
+#
+#       uv run scripts/preflight_checkpoint.py \
+#         model_zoo/flip_pack_20260827_single_arm/pi05-flip-single-arm/checkpoints/005000 \
+#         --config configs/lerobot_control/inference_singlearm_flip.yaml
+#
+#   It reads config.json / anvil_config.json and reports every mismatch between
+#   this file and the checkpoint. Fix what it flags, then launch. Rationale for
+#   why this is not optional: modeling_pi05.py:1195-1204 silently substitutes a
+#   blank -1 image (mask 0) for any declared camera you fail to send — no error,
+#   no warning, just a policy staring at a grey frame and falling back to a
+#   near-constant prior pose. Conversely, listing a camera the checkpoint does
+#   NOT declare makes ObservationManager.has_complete_observation() block
+#   forever waiting for a feature with no slot, and inference never starts.
+# =============================================================================
+# Parameters set via ROS2 launch args (not in this file):
+#   model_path, device, control_frequency, image_height/width, echo_topic_only
+#
+# Model type and training flags are auto-read from the checkpoint.
+# Only set fields here to override checkpoint values or provide runtime config.
+
+# -----------------------------------------------------------------------------
+# Model
+# -----------------------------------------------------------------------------
+model:
+  # VLA task prompt — required for SmolVLA / Pi0 / Pi0.5, ignored for ACT / Diffusion.
+  # MUST be set here: this checkpoint's anvil_config.json omits
+  # task_description entirely (it carries only action_type, code_commit and a
+  # note), so leaving this null sends no prompt at all — unlike the bimanual
+  # checkpoints, there is nothing to auto-read.
+  #
+  # The string is unchanged from the bimanual flip run; confirmed identical for
+  # the single-arm dataset by the operator on 2026-09-04. The language tokens
+  # are a conditioning input, so a reworded string degrades actions silently.
+  task_description: "Flip the package upside down."
+
+# -----------------------------------------------------------------------------
+# Inference Tuning (per model type)
+# -----------------------------------------------------------------------------
+# Override checkpoint defaults. null = use the value the model was trained with.
+# Only the section matching your model type is used; others are ignored.
+
+inference_tuning:
+
+  # ACT — lightweight transformer, single forward pass per chunk
+  act:
+    n_action_steps: null
+    temporal_ensemble_coeff: null
+
+  # Diffusion — iterative denoising (UNet)
+  diffusion:
+    n_action_steps: null
+    num_inference_steps: 10
+
+  # RTC — VLA models only (pi0, pi0.5, smolvla), always enabled
+  #   Background thread runs inference continuously; control loop reads from ActionQueue.
+  rtc:
+    # inference_delay: fallback step-count for first inference before LatencyTracker kicks in.
+    #   Real-robot tuned: ceil(~330ms × 30Hz) ≈ 10. Auto-adjusted after first inference.
+    inference_delay: 10
+    # queue_trigger_threshold: re-trigger inference when queue depth ≤ this.
+    #   Set equal to chunk_size (50) for maximum RTC overlap.
+    queue_trigger_threshold: 50
+    # execution_horizon: steps used from each chunk before re-inferring.
+    #   Higher → less frequent inference, slower reaction. Lower → faster reaction.
+    #   12 carried over from the bimanual flip config; a single-arm pi0.5 forward
+    #   pass is not meaningfully faster (the VLM backbone dominates), so start here.
+    execution_horizon: 12
+    max_guidance_weight: 10.0
+    prefix_attention_schedule: EXP
+
+# -----------------------------------------------------------------------------
+# Joint Configuration
+# -----------------------------------------------------------------------------
+joint_state_topic: "/joint_states"
+
+joint_names:
+  # Joint order as output by ML model (must match training dataset).
+  # finger_joint1 first — matches the sorted() ordering the converter produced.
+  model_joint_order:
+    - finger_joint1
+    - joint1
+    - joint2
+    - joint3
+    - joint4
+    - joint5
+    - joint6
+    - joint7
+
+  # Joint order expected by ROS2 forward_position_controller
+  controller_joint_order:
+    - joint1
+    - joint2
+    - joint3
+    - joint4
+    - joint5
+    - joint6
+    - joint7
+    - finger_joint1
+
+  # arm_mapping controls how observation.state is assembled:
+  #   Keys feed the joint-name lookup f"{observation_prefix}_{arm_key}_{joint_id}"
+  #   and are iterated in sorted() order (strategies/multi_process.py:220).
+  #
+  #   SINGLE ARM: r only → 1 × 8 = 8 DOF state, matching the checkpoint's
+  #   observation.state shape [8]. Do NOT add `l: left` here — that would
+  #   produce a 16-vector whose first 8 slots are the (stationary, irrelevant)
+  #   left arm, silently misaligning every input dimension.
+  arm_mapping:
+    r: right
+
+  state_features:
+    - position
+
+# -----------------------------------------------------------------------------
+# Arm Configuration
+# -----------------------------------------------------------------------------
+# ML model outputs: action = [right_joints...]  — 8 values, no left half.
+# Slice is [0:8], NOT the [8:16] that inference_flip.yaml uses.
+
+arms:
+  right:
+    ros_prefix: "follower_r"
+    command_topic: "/follower_r_forward_position_controller/commands"
+    action_start: 0
+    action_end: 8
+
+# -----------------------------------------------------------------------------
+# Camera Configuration
+# -----------------------------------------------------------------------------
+
+cameras:
+  # fps: expected publish rate; warning fires when any camera drops below fps * 2/3.
+  #   Independent of control_frequency.
+  fps: 30.0
+
+  # mapping: ROS topic -> ML model camera name (must match config.json's
+  #   observation.images.<name> keys EXACTLY — see the header warning).
+  #
+  # VERIFIED against checkpoints/005000/pretrained_model/config.json on
+  # 2026-09-04: it declares chest + wrist_l + wrist_r.
+  #
+  # wrist_l IS REQUIRED even though the left arm is gone from the state and
+  # action vectors. This run was recorded on the bimanual rig, so the left wrist
+  # camera is still a declared input feature; the arm was dropped, the camera
+  # was not. Omitting it does not error — modeling_pi05.py:1195-1204 substitutes
+  # a blank -1 frame with attention mask 0 and the policy quietly degrades.
+  # waist is absent from the checkpoint, so it must stay absent here.
+  mapping:
+    "/cam_chest/image_raw/compressed": "chest"
+    "/cam_wrist_r/image_raw/compressed": "wrist_r"
+    "/cam_wrist_l/image_raw/compressed": "wrist_l"
+
+  # fps_overrides: per-topic overrides for cameras running at a different rate.
+  # fps_overrides:
+  #   "/cam_wrist_r/image_raw/compressed": 60.0
+
+# -----------------------------------------------------------------------------
+# Safety Parameters
+# -----------------------------------------------------------------------------
+# max_position_delta: maximum joint position change per control step (radians).
+#
+# min_position_delta: DISABLED ON PURPOSE — same trap as inference_flip.yaml.
+#   ActionLimiter.process() applies ONE scalar threshold across a vector that
+#   mixes units: joint1..joint7 in radians, finger_joint1 PRISMATIC in metres
+#   over a 0..0.05 m range. The gripper's entire travel (home 0.045 m → the
+#   ~-0.003 m the flip task commands) is 0.048 m — 2 mm short of the 0.05 that
+#   inference_default.yaml suggests. _pending_delta never crosses the mask, the
+#   gripper freezes at its first published value, and the arm reaches correctly
+#   but never closes. If friction later demands a deadband use ~0.002 (the
+#   loader's gripper_error_threshold is 0.003) — never 0.05.
+safety:
+  max_position_delta: 0.1
+  min_position_delta: null
