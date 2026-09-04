@@ -768,8 +768,10 @@ examples:
     )
     parser.add_argument(
         "--vcodec", type=str, default="h264",
-        choices=["h264", "hevc", "libsvtav1"],
-        help="video codec (default: h264). h264 is widely viewable; libsvtav1 gives best compression",
+        choices=["h264", "hevc", "libsvtav1", "h264_nvenc", "hevc_nvenc"],
+        help="video codec (default: h264). h264 is widely viewable; libsvtav1 gives best "
+             "compression; h264_nvenc/hevc_nvenc use NVIDIA GPU encoding (much faster, "
+             "requires an NVENC-capable GPU)",
     )
     parser.add_argument(
         "--resume", action="store_true",
