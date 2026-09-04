@@ -206,3 +206,42 @@ cameras:
 safety:
   max_position_delta: 0.1
   min_position_delta: null
+
+# -----------------------------------------------------------------------------
+# State Pinning
+# -----------------------------------------------------------------------------
+# Freeze the left arm's 8 state dims at the training median instead of feeding
+# live encoder values.
+#
+# The left arm never moves in flip-pack, so its q99-q01 is degenerate and the
+# dataset stats were floored to 0.03. QUANTILES normalisation therefore runs at
+# 2/0.03 = 66.7 units/rad on those dims, against 1.3-2.6 for the right arm —
+# roughly 35x more sensitive. Under a degree of difference between the training
+# rest pose and the deployed one pushes the dim outside normalised [-1, 1];
+# normalize_processor.py:377 does not clamp.
+#
+# For pi0.5 that is not a soft failure. It bins the normalised state into 256
+# levels and splices them into the TEXT prompt (processor_pi05.py:74-82), so an
+# out-of-range dim saturates to bin 0/255 or emits token -1 — a string never
+# produced in training — corrupting the prefix that conditions the entire
+# chunk. That matches the observed symptom: right gripper pinned at 0.048-0.053
+# instead of reaching -0.003. The measured deployment pose L_j2 = -0.194 rad
+# normalises to -1.84 and tokenises to -1.
+#
+# SmolVLA runs the same dataset without this because its normalizer is step 5,
+# AFTER the tokenizer, and state reaches the model through nn.Linear
+# (modeling_smolvla.py:693) — a large float, not a bad token. Hence smolvla-flip
+# behaving normally while pi05-flip does not.
+#
+# q50 lands at exactly normalised 0.0 (token 128) on every left dim, so the
+# state portion of the prompt becomes byte-identical every step.
+#
+# This also removes a silent failure: multi_process.py falls back to 0.0 for any
+# joint missing from /joint_states. For L_j4 (q01 1.574) that normalises to
+# -105.9 with no warning.
+#
+# Set enabled: false to feed live left-arm state again (A/B against SmolVLA).
+state_pinning:
+  enabled: true
+  arms: [l]
+  source: q50

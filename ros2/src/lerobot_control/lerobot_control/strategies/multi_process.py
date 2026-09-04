@@ -10,8 +10,10 @@ Architecture:
 - Main Process: Read from shared memory, run model inference, publish actions
 """
 
+import json
 import multiprocessing as mp
 import time
+from pathlib import Path
 from typing import Any
 
 import torch
@@ -57,6 +59,10 @@ class MultiProcessStrategy:
         # Status tracking
         self._last_incomplete_reason: str = ""
 
+        # State pinning (see _setup_state_pinning)
+        self._pin_dims: list[int] = []
+        self._pin_values: list[float] = []
+
     def setup(
         self,
         node: Any,
@@ -80,6 +86,9 @@ class MultiProcessStrategy:
         self._callback_group = callback_group
         self._debug_image_dir = debug_image_dir
 
+        # Freeze degenerate state dims before anything reads them
+        self._setup_state_pinning()
+
         # Create shared memory buffers
         self._setup_shared_memory()
 
@@ -92,6 +101,125 @@ class MultiProcessStrategy:
         self._node.get_logger().info(
             f"MultiProcessStrategy initialized with {len(self._worker_processes)} image workers"
         )
+
+    def _setup_state_pinning(self) -> None:
+        """Freeze the state dims of selected arms to a constant from checkpoint stats.
+
+        Why: a joint that never moves in the training data has a degenerate
+        q99-q01, which the dataset stats floor widens to 0.03. QUANTILES
+        normalisation then runs at ~67 units/rad on those dims (vs ~2 on a
+        joint that actually moves), so a sub-degree difference between the
+        training rest pose and the deployed one leaves the normalised [-1, 1]
+        range entirely.
+
+        That is survivable for SmolVLA, which feeds state through nn.Linear
+        (modeling_smolvla.py:693) and degrades smoothly. It is not survivable
+        for pi0.5: it discretises the normalised state into 256 bins and
+        splices them into the *text* prompt (processor_pi05.py:74-82). Out of
+        range saturates to bin 0/255 or emits token -1, a string never produced
+        during training, corrupting the prefix that conditions the whole action
+        chunk — both arms, not just the pinned dims.
+
+        Pinning to q50 puts those dims at exactly normalised 0.0 (token 128),
+        so the state portion of the prompt is byte-identical every step.
+
+        Config (top level of the inference YAML):
+
+            state_pinning:
+              enabled: true
+              arms: [l]         # arm_mapping keys to pin
+              source: q50       # q50 | mean, read from the checkpoint stats
+              # values: [...]   # optional explicit override, one per pinned dim
+        """
+        cfg = (self._config or {}).get("state_pinning") or {}
+        if not cfg.get("enabled", False):
+            return
+
+        arm_keys = cfg.get("arms") or []
+        if not arm_keys:
+            self._node.get_logger().warning(
+                "state_pinning.enabled is true but state_pinning.arms is empty - nothing pinned"
+            )
+            return
+
+        arm_mapping = self._joint_names_config.get("arm_mapping", {"l": "left", "r": "right"})
+        joint_order = self._joint_names_config.get("model_joint_order", [])
+        if not joint_order:
+            raise ValueError("state_pinning requires joint_names.model_joint_order")
+
+        # Mirrors the assembly order in _build_observation: sorted arm keys,
+        # each expanded over model_joint_order.
+        sorted_keys = sorted(arm_mapping.keys())
+        n_joints = len(joint_order)
+        dims: list[int] = []
+        for key in arm_keys:
+            if key not in arm_mapping:
+                raise ValueError(
+                    f"state_pinning.arms lists '{key}', which is not in "
+                    f"joint_names.arm_mapping ({sorted_keys})"
+                )
+            base = sorted_keys.index(key) * n_joints
+            dims.extend(range(base, base + n_joints))
+
+        state_width = len(sorted_keys) * n_joints
+
+        explicit = cfg.get("values")
+        if explicit is not None:
+            if len(explicit) != len(dims):
+                raise ValueError(
+                    f"state_pinning.values has {len(explicit)} entries but "
+                    f"{len(dims)} dims are pinned"
+                )
+            values = [float(v) for v in explicit]
+            source_desc = "explicit values"
+        else:
+            stat = cfg.get("source", "q50")
+            stats = self._load_state_stats(stat)
+            if len(stats) != state_width:
+                raise ValueError(
+                    f"checkpoint observation.state.{stat} has {len(stats)} entries "
+                    f"but arm_mapping x model_joint_order implies {state_width}"
+                )
+            values = [float(stats[d]) for d in dims]
+            source_desc = f"checkpoint observation.state.{stat}"
+
+        self._pin_dims = dims
+        self._pin_values = values
+
+        pinned = ", ".join(f"{d}={v:.5f}" for d, v in zip(dims, values))
+        self._node.get_logger().warning(
+            f"State pinning ACTIVE for arm(s) {arm_keys} from {source_desc}: [{pinned}]. "
+            "These dims are frozen and no longer reflect the real robot."
+        )
+
+    def _load_state_stats(self, stat: str) -> Any:
+        """Read observation.state.<stat> from the checkpoint's normalizer stats."""
+        model_path = getattr(self._node, "model_path", "") or ""
+        if not model_path:
+            raise ValueError("state_pinning needs model_path; not available in echo-topic-only mode")
+
+        ckpt = Path(model_path)
+        pre_cfg_path = ckpt / "policy_preprocessor.json"
+        if not pre_cfg_path.exists():
+            raise FileNotFoundError(f"state_pinning: {pre_cfg_path} not found")
+
+        pre_cfg = json.loads(pre_cfg_path.read_text())
+        state_file = None
+        for step in pre_cfg.get("steps", []):
+            if step.get("registry_name") == "normalizer_processor":
+                state_file = step.get("state_file")
+                break
+        if not state_file:
+            raise ValueError(f"state_pinning: no normalizer_processor step in {pre_cfg_path}")
+
+        from safetensors.numpy import load_file
+
+        stats = load_file(str(ckpt / state_file))
+        key = f"observation.state.{stat}"
+        if key not in stats:
+            available = sorted(k.rsplit(".", 1)[1] for k in stats if k.startswith("observation.state."))
+            raise ValueError(f"state_pinning: '{key}' not in checkpoint stats; available: {available}")
+        return stats[key]
 
     def _setup_shared_memory(self) -> None:
         """Create shared memory buffers for all cameras."""
@@ -225,6 +353,14 @@ class MultiProcessStrategy:
                         joint_name = f"{obs_prefix}{sep}{arm_key}{sep}{joint_id}"
                         val = data_dict.get(joint_name, 0.0) if data_dict else 0.0
                         ordered.append(val)
+
+                # Freeze pinned dims (see _setup_state_pinning). Position only:
+                # velocity/effort have their own scales and are not tokenized.
+                if obs_key == "observation.state" and self._pin_dims:
+                    for dim, pinned in zip(self._pin_dims, self._pin_values):
+                        if dim < len(ordered):
+                            ordered[dim] = pinned
+
                 observation[obs_key] = torch.tensor(ordered, dtype=torch.float32).unsqueeze(0)
 
         return observation
