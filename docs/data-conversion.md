@@ -102,6 +102,8 @@ Pick the config that matches your recording setup. `--config` is technically opt
 | `openarm_single_quest_afo.yaml` | Quest VR | Single (right) | Observation lookahead | 4:3 (640×480) |
 | `openarm_bimanual_quest_flip.yaml` | Quest VR | Bimanual, right only commanded | Command topics (right); left holds position | 4:3 (640×480) |
 | `openarm_bimanual_quest_bottle_handover.yaml` | Quest VR | Bimanual | Command topics | 16:9 (480×270) |
+| `openarm_single_quest_flip.yaml` | Quest VR | Single (right), 8-D | Command topics (right); left dropped entirely | 4:3 (640×480), 3 cams |
+| `openarm_single_quest_flip_plus.yaml` | Quest VR | Single (right), 8-D | Command topics (right); left dropped entirely | 4:3 (640×480), 2 cams (chest+wrist_r only) |
 
 `_16x9` variants set `image_resolution: [480, 270]`, an exact ÷4 downscale of 1920×1080 source cameras with zero letterbox padding. Use the matching `_16x9` config instead of the 4:3 default if your cameras natively output 1920×1080 — see [docs/training.md](training.md#diffusion) for details.
 

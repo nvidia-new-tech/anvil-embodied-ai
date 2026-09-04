@@ -1,0 +1,100 @@
+# =============================================================================
+# OpenArm MCAP to LeRobot Conversion Configuration — flip-pack, single-arm (8-D)
+# =============================================================================
+# Teleop Mode: Quest (VR Controller)  --  flip-pack session
+#
+# True single-arm variant: only the right arm is declared in `arms`, so the
+# left arm's joints in /joint_states are parsed and silently skipped (see
+# extractor.py::parse_joint_name -- an arm identifier not present in `arms`
+# returns None for that joint, it does not error). observation.state and
+# action are both 8-D. This is the "don't carry unused-arm info" alternative
+# to openarm_bimanual_quest_flip.yaml's 16-D hold-position fallback -- no
+# near-zero-variance dimension enters the tensor, so pi0.5's QUANTILE10
+# normalization has nothing to divide by ~0 on.
+#
+# Cameras: chest / wrist_l / wrist_r at native 640x480 (no waist on this rig).
+# wrist_l is kept even though the left arm is dropped from state/action --
+# it's still useful visual context.
+#
+# For the 16-D bimanual-compatible variant, see: openarm_bimanual_quest_flip.yaml
+# =============================================================================
+
+robot_state_topic: "/joint_states"
+
+
+# =============================================================================
+# Joint Name Parsing
+# =============================================================================
+# /joint_states carries both arms' joints, but only "r" is mapped below --
+# "l"-prefixed joints are parsed and dropped, not an error.
+
+joint_names:
+  separator: "_"
+
+  source:
+    follower: observation
+
+  arms:
+    r: right
+
+
+# =============================================================================
+# Action Topics (Quest Teleop)
+# =============================================================================
+
+action_topics:
+  "/follower_r_forward_position_controller/commands":
+    arm: "right"
+    joint_order: ["joint1", "joint2", "joint3", "joint4", "joint5", "joint6", "joint7", "finger_joint1"]
+
+action_from_observation: false
+
+
+# =============================================================================
+# Camera Configuration
+# =============================================================================
+
+camera_topics:
+  - "/cam_chest/image_raw/compressed"
+  - "/cam_wrist_l/image_raw/compressed"
+  - "/cam_wrist_r/image_raw/compressed"
+
+camera_topic_mapping:
+  "/cam_chest/image_raw/compressed": "chest"
+  "/cam_wrist_l/image_raw/compressed": "wrist_l"
+  "/cam_wrist_r/image_raw/compressed": "wrist_r"
+
+image_resolution: [640, 480]   # native resolution, no rescale
+
+
+# =============================================================================
+# Feature Extraction
+# =============================================================================
+
+observation_feature_mapping:
+  state: "position"
+  others: []
+
+action_feature_mapping:
+  state: "position"
+  others: []
+
+
+# =============================================================================
+# Quick Reference
+# =============================================================================
+#
+# Input (ROS topics):
+#   /joint_states (sensor_msgs/JointState):
+#     name: ["follower_r_joint1", ..., "follower_l_joint1", ...]  (left dropped)
+#     position: [0.1, 0.2, ...]
+#
+#   /follower_r_forward_position_controller/commands (Float64MultiArray):
+#     data: [0.3, 0.4, ..., 0.9]     # right arm target positions
+#
+# Output (LeRobot dataset):
+#   observation.state     [8]  = [right_joints...]  (from follower)
+#   action                [8]  = [right_joints...]  (from command topic)
+#   observation.images.chest
+#   observation.images.wrist_l
+#   observation.images.wrist_r
