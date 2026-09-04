@@ -4,6 +4,12 @@
 
 All inference scenarios go through `scripts/run_inference.sh`.
 
+> **Deploying a checkpoint you did not train?** Read
+> [Checkpoint → Inference Handoff](inference-checkpoint-handoff.md) first. This document
+> covers running the stack; that one covers working out the config a given checkpoint
+> requires, and the silent failure modes when the two disagree. Start with
+> `scripts/preflight_checkpoint.py`.
+
 **Start by copying `.env.example` to `.env` and editing it for your setup:**
 
 ```bash
