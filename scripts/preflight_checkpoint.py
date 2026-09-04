@@ -271,7 +271,7 @@ def main() -> int:
         if uncommanded:
             warn(f"action dims {uncommanded} are never published (no arm claims them). "
                  f"Deliberate for a bimanual checkpoint whose idle arm must not be tracked "
-                 f"(see model_zoo/'Pi05 Inference Note.md' §3) — unexpected otherwise")
+                 f"(see docs/inference.md, arms[].driven) — unexpected otherwise")
 
     # ---- task description ----------------------------------------------------
     yaml_task = (y.get("model") or {}).get("task_description")

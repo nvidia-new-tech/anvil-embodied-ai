@@ -86,6 +86,21 @@ against the YAML. **Exit code 1 = do not launch.**
 | `queue_trigger_threshold` ≤ `chunk_size` | The queue can never hold that many, so inference re-triggers every step. |
 | `safety.min_position_delta` scale | See [Safety limits](#safety-limits) — a plausible value freezes the gripper. |
 
+### Isolating input-side faults without the robot
+
+If the policy runs but behaves wrong, this separates a bad input pipeline from bad weights
+before you spend more robot time on it.
+
+Run `predict_action_chunk` offline, assembling the batch **the same way the ROS node does**,
+and compute the temporal ratio of the output. If the offline pipeline lands near the
+ground-truth ratio (measured ~0.14 against GT 0.152 on `pi05-flip`) while the live ROS
+pipeline is clearly lower, the fault is on the **input side** — camera keys, state
+assembly, normalisation — not in the checkpoint.
+
+The same trick quantifies camera dependence: swap one camera for a blank −1 image, recompute
+the ratio, and you get the cost of losing that view. Useful because a missing camera is
+silent (see the table above).
+
 ### Deriving the config from the checkpoint
 
 | Inference YAML | Source of truth |

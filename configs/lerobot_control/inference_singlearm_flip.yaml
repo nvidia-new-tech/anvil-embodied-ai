@@ -17,9 +17,9 @@
 #   (32) and truncates action, so a 16-DOF state fed to an 8-DOF checkpoint just
 #   shifts every value into the wrong slot and the arm moves plausibly-but-wrong.
 #
-#   The "left arm is action[0:8] = hold position" warning in
-#   model_zoo/Pi05 Inference Note.md §3 is a BIMANUAL-dataset artifact. There is
-#   no left half here at all — nothing to drop.
+#   The "left arm is action[0:8] = hold position" caveat (see docs/inference.md,
+#   arms[].driven) is a BIMANUAL-dataset artifact. There is no left half here at
+#   all — nothing to drop.
 #
 # ── VERIFY BEFORE THE FIRST RUN (weights arrive 2026-09-04) ───────────────────
 #

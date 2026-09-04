@@ -114,7 +114,10 @@ joint_names:
 # ML model outputs: action = [left_joints..., right_joints...]
 # Split and publish to separate controller topics
 #
-# LEFT ARM IS DELIBERATELY ABSENT — see model_zoo/Pi05 Inference Note.md §3.
+# LEFT ARM IS DELIBERATELY ABSENT. This checkpoint's action[0:8] is "hold position"
+# (it equalled the current observation during training), not a target to track —
+# tracking it drives the idle arm toward a statistical mean pose. See docs/inference.md,
+# "What a model_card.yaml must carry" (arms[].driven).
 #
 # Confirmed by the operator on 2026-08-28: the left arm does not move in the
 # flip task. It was briefly restored that day and measurably broke the policy —
