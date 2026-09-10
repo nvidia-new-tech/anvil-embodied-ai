@@ -201,11 +201,11 @@ class LeRobotInferenceNode(Node):
             for topic, name in self.camera_mapping.items()
         }
 
-        self.arms_config = self.config.get("arms", {})
-        self.joint_names_config = self.config.get("joint_names", {})
+        self.arms_config = self.config.get("arms") or {}
+        self.joint_names_config = self.config.get("joint_names") or {}
 
         # Inference tuning — per model type (resolved after model_type is known)
-        self._tuning_config = self.config.get("inference_tuning", {})
+        self._tuning_config = self.config.get("inference_tuning") or {}
 
         # --- Checkpoint metadata (lightweight JSON reads, no tensor loading) ---
         # Skip in echo_topic_only mode — no checkpoint needed
@@ -216,7 +216,9 @@ class LeRobotInferenceNode(Node):
         self.image_shape = meta.get("image_shape", (480, 640, 3))
 
         # model_type: from config.json, YAML overrides if explicitly set
-        model_cfg = self.config.get("model", {})
+        # `or {}` because a YAML block holding only comments parses as None, not
+        # {}, and the default in .get() does not fire for a key that IS present.
+        model_cfg = self.config.get("model") or {}
         self.model_type = model_cfg.get("type") or meta.get("model_type")
 
         # action_type from anvil_config.json — must match training
@@ -351,7 +353,7 @@ class LeRobotInferenceNode(Node):
 
         # Fallback: also check old top-level rtc key for backward compatibility
         if self._is_vla and not self.rtc_config_yaml:
-            self.rtc_config_yaml = self.config.get("rtc", {})
+            self.rtc_config_yaml = self.config.get("rtc") or {}
 
         self.n_action_steps_override = config_overrides.get("n_action_steps")
 
