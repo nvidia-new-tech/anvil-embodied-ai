@@ -199,6 +199,13 @@ class LeRobotInferenceNode(Node):
         # per-joint clip (joint_limits) then a per-step displacement cap
         # (max_relative_target, scalar or per-joint). Both default to None =
         # disabled, so a config must opt in explicitly.
+        # Action scaling — a diagnostic amplifier, see _setup_action_scale.
+        self._scale_cfg = self.config.get("action_scale") or {}
+        self._scale_gain = None
+        self._scale_center = None
+        self._scale_lo = None
+        self._scale_hi = None
+
         self.max_relative_target = safety_config.get("max_relative_target", None)
         self.joint_limits = safety_config.get("joint_limits", None)
         if isinstance(self.joint_limits, dict):
@@ -396,6 +403,7 @@ class LeRobotInferenceNode(Node):
         self.model, self.preprocessor, self.postprocessor = loader.load_with_processors()
         self._loader = loader
         self._check_delta_restore_conflict()
+        self._setup_action_scale()
 
         # Confirm final model_type (ModelLoader auto-detects if None was passed)
         self.model_type = loader.model_type
@@ -415,6 +423,143 @@ class LeRobotInferenceNode(Node):
                 f"{self.model_type} has no task_description — re-train with --task-description "
                 "or set model.task_description in the inference YAML."
             )
+
+    def _setup_action_scale(self) -> None:
+        """Expand the action about a fixed centre, to test an amplitude shortfall.
+
+        Measured against the demo distribution baked into the checkpoint, this
+        policy's output std runs 60-85% of the demonstrations' on every joint.
+        Scaling is a DIAGNOSTIC for that, not a fix: if a modest gain restores
+        the reach, the trajectory shape is right and only its amplitude is
+        wrong, which points at the policy rather than the pipeline.
+
+        Note what this must NOT be. Actions are ABSOLUTE joint positions, so
+        `action * gain` is not an amplifier — it is a shift proportional to the
+        distance from the origin (j4 sitting at 1.1 rad becomes 1.21, a +0.11
+        offset, with the motion around it still the same size). Amplitude lives
+        in the deviation from a centre, so:
+
+            out = centre + (action - centre) * gain
+
+        centre: q50 | mean   fixed, from the checkpoint's own action stats, so
+                             the expansion is about the demo distribution
+                observation  amplify each step's displacement from where the arm
+                             actually is
+
+        Results are clamped to the training action range by default. With both
+        safety layers off by default, an amplified action is otherwise the last
+        thing between the policy and the motors — and an out-of-range pose feeds
+        straight back in as the next observation.state, which is how a small
+        overshoot turns into a diverging one.
+
+            action_scale:
+              enabled: true
+              gain: 1.1            # scalar, or {joint_name: gain}
+              centre: q50          # q50 | mean | observation
+              clamp: true
+        """
+        cfg = self._scale_cfg
+        if not cfg.get("enabled", False):
+            return
+        if self.echo_topic_only or not self.model_path:
+            return
+
+        centre_kind = cfg.get("centre", cfg.get("center", "q50"))
+        order = self.joint_names_config.get("model_joint_order", [])
+        arm_keys = sorted((self.joint_names_config.get("arm_mapping") or {}).keys())
+        # The action vector repeats model_joint_order once per arm in the state.
+        names = [j for _ in (arm_keys or [None]) for j in order]
+        width = len(names)
+        if not width:
+            raise ValueError("action_scale requires joint_names.model_joint_order")
+
+        gain = cfg.get("gain", 1.0)
+        if isinstance(gain, dict):
+            unknown = sorted(set(gain) - set(order))
+            if unknown:
+                raise ValueError(f"action_scale.gain names not in model_joint_order: {unknown}")
+            vec = np.ones(width)
+            for i, name in enumerate(names):
+                if name in gain:
+                    vec[i] = float(gain[name])
+            self._scale_gain = vec
+        else:
+            self._scale_gain = np.full(width, float(gain))
+
+        if centre_kind == "observation":
+            self._scale_center = "observation"
+        else:
+            stats = self._load_action_stats()
+            key = {"q50": "action.q50", "mean": "action.mean"}.get(centre_kind)
+            if key is None:
+                raise ValueError(
+                    f"action_scale.centre must be q50, mean or observation; got {centre_kind!r}"
+                )
+            if key not in stats:
+                raise ValueError(f"checkpoint stats have no {key}")
+            self._scale_center = np.asarray(stats[key], dtype=float)[:width]
+
+        if cfg.get("clamp", True):
+            stats = self._load_action_stats()
+            self._scale_lo = np.asarray(stats["action.min"], dtype=float)[:width]
+            self._scale_hi = np.asarray(stats["action.max"], dtype=float)[:width]
+
+        desc = gain if isinstance(gain, dict) else f"{float(gain):g}"
+        self.get_logger().warn(
+            f"Action scaling ACTIVE: gain={desc} about {centre_kind}, "
+            f"clamp={'training range' if self._scale_lo is not None else 'OFF'}. "
+            "Actions no longer match the policy output."
+        )
+
+    def _load_action_stats(self) -> dict:
+        """Read the unnormalizer's action stats from the checkpoint."""
+        if getattr(self, "_action_stats", None) is not None:
+            return self._action_stats
+
+        ckpt = Path(self.model_path)
+        cfg_path = ckpt / "policy_postprocessor.json"
+        if not cfg_path.exists():
+            raise FileNotFoundError(f"action_scale needs {cfg_path}")
+        steps = json.loads(cfg_path.read_text()).get("steps", [])
+        state_file = next(
+            (s.get("state_file") for s in steps if s["registry_name"] == "unnormalizer_processor"),
+            None,
+        )
+        if not state_file:
+            raise ValueError(f"no unnormalizer_processor step in {cfg_path}")
+
+        from safetensors.numpy import load_file
+
+        self._action_stats = load_file(str(ckpt / state_file))
+        return self._action_stats
+
+    def _apply_action_scale(self, action: np.ndarray) -> np.ndarray:
+        """centre + (action - centre) * gain, then clamp. No-op unless enabled."""
+        if self._scale_gain is None or len(action) != len(self._scale_gain):
+            return action
+
+        if isinstance(self._scale_center, str):  # "observation"
+            current = self.strategy.get_current_joint_positions()
+            order = self.joint_names_config.get("model_joint_order", [])
+            arm_map = self.joint_names_config.get("arm_mapping") or {}
+            prefix = self.joint_names_config.get("observation_prefix", "follower")
+            sep = self.joint_names_config.get("separator", "_")
+            centre = np.array(
+                [
+                    current.get(f"{prefix}{sep}{k}{sep}{j}", np.nan)
+                    for k in sorted(arm_map)
+                    for j in order
+                ]
+            )
+            if centre.shape != action.shape or np.isnan(centre).any():
+                return action  # no joint state yet; publish unscaled
+        else:
+            centre = self._scale_center
+
+        out = centre + (action - centre) * self._scale_gain
+        if self._scale_lo is not None:
+            out = np.clip(out, self._scale_lo, self._scale_hi)
+        return out
 
     def _check_delta_restore_conflict(self) -> None:
         """Fail loudly if delta restore would be applied twice.
@@ -473,6 +618,8 @@ class LeRobotInferenceNode(Node):
         logger.info(f"Device:     {self.device}")
         logger.info(f"Frequency:  {self.control_freq} Hz")
         if not self.echo_topic_only:
+            if self._scale_gain is not None:
+                logger.warn(f"Act scale:  ON (see action_scale in the config)")
             logger.info(f"Max rel:    {self.max_relative_target}")
             logger.info(f"Jnt limits: {'set' if self.joint_limits else 'none'}")
 
@@ -838,6 +985,7 @@ class LeRobotInferenceNode(Node):
 
     def _publish_action(self, action: np.ndarray) -> None:
         """Publish action to arm controllers."""
+        action = self._apply_action_scale(action)
         current_positions = self.strategy.get_current_joint_positions()
         joint_order = self.joint_names_config.get(
             "controller_joint_order",
