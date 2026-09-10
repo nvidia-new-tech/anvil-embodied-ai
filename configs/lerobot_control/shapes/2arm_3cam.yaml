@@ -139,38 +139,6 @@ cameras:
   #   "/cam_chest/image_raw/compressed": 60.0
 
 # -----------------------------------------------------------------------------
-# Action Scaling  (diagnostic — off by default)
-# -----------------------------------------------------------------------------
-# Expands the action about a fixed centre:  out = centre + (action - centre)*gain
-#
-# For when the robot's motion is visibly smaller than the demonstrations.
-# Measured against the demo stats baked into a checkpoint, output std has run
-# 60-85% of the demonstrations' on every joint. This tests that: if a modest
-# gain restores the reach, the trajectory shape is right and only the amplitude
-# is wrong.
-#
-# It is a DIAGNOSTIC, not a fix. It amplifies the policy's errors by the same
-# factor, and an amplified pose feeds back as the next observation.state.
-#
-# Do NOT think of this as `action * gain`. Actions are ABSOLUTE joint positions,
-# so multiplying is a shift proportional to distance from the origin, not an
-# amplifier: j4 sitting at 1.1 rad becomes 1.21 while the motion around it stays
-# the same size. Amplitude lives in the deviation from a centre.
-#
-#   gain    scalar, or {joint_name: gain} for specific joints
-#   centre  q50 | mean       fixed, from the checkpoint's own action stats
-#           observation      amplify each step's displacement from the live pose
-#   clamp   true (default) limits the result to the training action range.
-#           Keep it: with both safety layers off, this is the last thing between
-#           the policy and the motors.
-#
-# action_scale:
-#   enabled: true
-#   gain: 1.1
-#   centre: q50
-#   clamp: true
-
-# -----------------------------------------------------------------------------
 # Safety
 # -----------------------------------------------------------------------------
 # Upstream defaults, from lerobot OpenArmFollowerConfig
