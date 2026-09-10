@@ -94,11 +94,23 @@ class LeRobotInferenceNode(Node):
 
             # Resolve delta exclude indices in model joint order (used by chunk restore)
             _model_order = self.joint_names_config.get("model_joint_order", [])
+            # Match upstream RelativeActionsProcessorStep._build_mask
+            # (processor/relative_action_processor.py:106-119): case-insensitive,
+            # and a token matches if it EQUALS or is CONTAINED IN the joint name.
+            # Exact matching would silently exclude nothing for the common
+            # anvil_config value "gripper" against a joint named
+            # "finger_joint1" / "left_finger_joint1".
+            _tokens = [str(n).lower() for n in self.delta_exclude_joints if n]
             self._delta_exclude_indices = [
-                _model_order.index(name)
-                for name in self.delta_exclude_joints
-                if name in _model_order
+                i
+                for i, joint in enumerate(_model_order)
+                if any(t == str(joint).lower() or t in str(joint).lower() for t in _tokens)
             ]
+            if self.delta_exclude_joints and not self._delta_exclude_indices:
+                self.get_logger().warn(
+                    f"delta_exclude_joints {self.delta_exclude_joints} matched no joint in "
+                    f"model_joint_order {_model_order} — every dim will be delta-restored"
+                )
 
             self._setup_publishers()
 
@@ -383,6 +395,7 @@ class LeRobotInferenceNode(Node):
         )
         self.model, self.preprocessor, self.postprocessor = loader.load_with_processors()
         self._loader = loader
+        self._check_delta_restore_conflict()
 
         # Confirm final model_type (ModelLoader auto-detects if None was passed)
         self.model_type = loader.model_type
@@ -402,6 +415,44 @@ class LeRobotInferenceNode(Node):
                 f"{self.model_type} has no task_description — re-train with --task-description "
                 "or set model.task_description in the inference YAML."
             )
+
+    def _check_delta_restore_conflict(self) -> None:
+        """Fail loudly if delta restore would be applied twice.
+
+        Upstream restores delta actions inside the processor pipeline, via
+        AbsoluteActionsProcessorStep (registered "absolute_actions_processor",
+        processor/relative_action_processor.py). We restore in the node instead,
+        with restore_delta_chunk.
+
+        We cannot simply defer to the pipeline: auditing model_zoo shows the step
+        is present-but-disabled on every pi05 checkpoint and ABSENT entirely on
+        every smolvla one. Relying on it would silently skip restoration for
+        SmolVLA. It also caches state in the paired preprocessor step, which does
+        not survive the RTC split where pre- and post-processing run on different
+        threads at different times.
+
+        So the node keeps ownership, and this guard catches the one case where
+        both would fire: a checkpoint whose pipeline has the step ENABLED while
+        the node is also configured for a delta action_type. Applying both would
+        add the reference state twice and drive the arm to roughly double the
+        intended displacement.
+        """
+        if not self.use_delta_actions or self.postprocessor is None:
+            return
+
+        steps = getattr(self.postprocessor, "steps", None) or []
+        for step in steps:
+            name = type(step).__name__
+            if "Absolute" not in name and "Relative" not in name:
+                continue
+            if getattr(step, "enabled", False):
+                raise RuntimeError(
+                    f"Delta restore would run TWICE: action_type is "
+                    f"'{self.action_type}' so the node applies restore_delta_chunk, "
+                    f"but the checkpoint's postprocessor also has {name} enabled. "
+                    f"Disable one — the node's restore covers both pi05 and smolvla, "
+                    f"the pipeline step does not exist on smolvla checkpoints."
+                )
 
     def _log_startup(self) -> None:
         """Log unified startup summary after all setup is complete."""
