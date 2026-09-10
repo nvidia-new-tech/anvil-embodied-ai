@@ -59,6 +59,9 @@ class MultiProcessStrategy:
         # Status tracking
         self._last_incomplete_reason: str = ""
 
+        # Passed through to the observation, matching upstream's contract.
+        self._robot_type: str = ""
+
         # State pinning (see _setup_state_pinning)
         self._pin_dims: list[int] = []
         self._pin_values: list[float] = []
@@ -82,6 +85,7 @@ class MultiProcessStrategy:
         self._camera_names = list(camera_mapping.values())
         self._joint_names_config = joint_names_config
         self._image_shape = image_shape
+        self._robot_type = (config or {}).get("robot_type", "") or ""
         self._metrics = metrics
         self._callback_group = callback_group
         self._debug_image_dir = debug_image_dir
@@ -321,12 +325,14 @@ class MultiProcessStrategy:
         """Build observation dict from shared memory images and joint state."""
         observation = {}
 
-        # Add images (already decompressed by workers)
+        # Add images (already decompressed by workers).
+        # Mirrors upstream prepare_observation_for_inference (policies/utils.py
+        # :127-133): float32 in [0,1], HWC -> CHW, contiguous, batch dim.
+        # .contiguous() matters: permute only restrides, so without it every
+        # downstream op on a non-contiguous tensor pays an implicit copy.
         for camera_name, (image, timestamp) in images.items():
-            # Convert to tensor and normalize to [0, 1]
             image_tensor = torch.from_numpy(image).float() / 255.0
-            # Rearrange to (C, H, W) and add batch dimension
-            image_tensor = image_tensor.permute(2, 0, 1).unsqueeze(0)
+            image_tensor = image_tensor.permute(2, 0, 1).contiguous().unsqueeze(0)
             observation[f"observation.images.{camera_name}"] = image_tensor
 
         # Build state observations (position / velocity / effort) based on config
@@ -362,6 +368,12 @@ class MultiProcessStrategy:
                             ordered[dim] = pinned
 
                 observation[obs_key] = torch.tensor(ordered, dtype=torch.float32).unsqueeze(0)
+
+        # Upstream sets this alongside "task" in prepare_observation_for_inference
+        # (policies/utils.py:136). Unused by pi0/pi05/smolvla today, but the
+        # processor pipelines read it positionally-free by key, so supplying it
+        # keeps us contract-compatible with steps that may expect it.
+        observation.setdefault("robot_type", self._robot_type)
 
         return observation
 
