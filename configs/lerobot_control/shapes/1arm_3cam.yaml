@@ -1,0 +1,163 @@
+# =============================================================================
+# SHAPE CONFIG — 1arm_3cam
+#   1 arm(s) in state (8 DOF) x 3 camera(s)
+#   publishes: right
+# =============================================================================
+# Pick the file whose SHAPE matches your checkpoint. It is task-agnostic and
+# reusable: model.task_description is deliberately omitted so it comes from the
+# checkpoint's own anvil_config.json (inference_node.py:231-234). Set it here
+# only to override a checkpoint whose baked-in string is wrong.
+#
+# Confirm the match before launching — every mismatch below fails SILENTLY:
+#
+#   ./.venv/bin/python scripts/preflight_checkpoint.py <ckpt> \
+#     --config configs/lerobot_control/shapes/1arm_3cam.yaml
+#
+# Required from the checkpoint's config.json:
+#   observation.state shape [8]   action shape [8]
+#   cameras exactly: chest, wrist_l, wrist_r
+#
+# See docs/checkpoint-intake.md for the full intake procedure.
+# =============================================================================
+# Set via ROS2 launch args, not here:
+#   model_path, device, control_frequency, image_height/width, echo_topic_only
+
+# -----------------------------------------------------------------------------
+# Model
+# -----------------------------------------------------------------------------
+model:
+  # null = inherit from the checkpoint's anvil_config.json.
+  #
+  # Set a string here when the checkpoint was trained WITHOUT one (many were —
+  # a VLA policy refuses to start with no task), or to override a wrong one. It
+  # must match the training string verbatim: VLA policies condition on it and a
+  # reworded one silently degrades actions.
+  #
+  # Keep this key present even when null. A `model:` block holding only
+  # comments parses as None, not {}, and the node reads model.get("type") on it.
+  task_description: null
+
+# -----------------------------------------------------------------------------
+# Inference Tuning
+# -----------------------------------------------------------------------------
+# Only the section matching the checkpoint's policy type is read. null = keep
+# the value the model was trained with.
+inference_tuning:
+  act:
+    n_action_steps: null
+    # 0.01 enables temporal ensembling (paper default); forces n_action_steps=1.
+    temporal_ensemble_coeff: null
+
+  diffusion:
+    n_action_steps: null
+    # 10 for real-time (78ms vs 711ms at the 100-step default).
+    num_inference_steps: 10
+
+  # VLA only (pi0 / pi05 / smolvla); always enabled for those.
+  rtc:
+    inference_delay: 10
+    queue_trigger_threshold: 50
+    execution_horizon: 12
+    max_guidance_weight: 10.0
+    prefix_attention_schedule: EXP
+
+# -----------------------------------------------------------------------------
+# Joint Configuration
+# -----------------------------------------------------------------------------
+joint_state_topic: "/joint_states"
+
+joint_names:
+  # Order the model emits — gripper FIRST. Must match the training dataset.
+  model_joint_order:
+    - finger_joint1
+    - joint1
+    - joint2
+    - joint3
+    - joint4
+    - joint5
+    - joint6
+    - joint7
+
+  # Order the ROS2 forward_position_controller expects — gripper LAST.
+  controller_joint_order:
+    - joint1
+    - joint2
+    - joint3
+    - joint4
+    - joint5
+    - joint6
+    - joint7
+    - finger_joint1
+
+  # State is assembled as sorted(arm_mapping) x model_joint_order
+  # = 1 x 8 = 8 DOF (multi_process.py:216-227).
+  arm_mapping:
+    r: right
+
+  state_features:
+    - position
+
+# -----------------------------------------------------------------------------
+# Arm Configuration
+# -----------------------------------------------------------------------------
+# Single-arm: the right arm owns the WHOLE action vector, so the slice is
+# [0:8] — NOT [8:16] as in a bimanual config.
+arms:
+  right:
+    ros_prefix: "follower_r"
+    command_topic: "/follower_r_forward_position_controller/commands"
+    action_start: 0
+    action_end: 8
+
+# -----------------------------------------------------------------------------
+# Camera Configuration
+# -----------------------------------------------------------------------------
+# Must match the checkpoint's observation.images.* keys EXACTLY.
+#   Missing/misspelled -> silently substituted with a blank -1 image, mask 0
+#     (modeling_pi05.py:1195-1204). No error; the policy stares at a grey frame
+#     and decays to a near-constant prior pose.
+#   Extra -> has_complete_observation() blocks forever; inference never starts.
+cameras:
+  # Warning fires when any camera drops below fps * 2/3. Independent of
+  # control_frequency.
+  fps: 30.0
+
+  mapping:
+    "/cam_chest/image_raw/compressed": "chest"
+    "/cam_wrist_l/image_raw/compressed": "wrist_l"
+    "/cam_wrist_r/image_raw/compressed": "wrist_r"
+
+  # Per-topic overrides for cameras running at a different rate.
+  # fps_overrides:
+  #   "/cam_chest/image_raw/compressed": 60.0
+
+# -----------------------------------------------------------------------------
+# Safety
+# -----------------------------------------------------------------------------
+# Upstream defaults, from lerobot OpenArmFollowerConfig
+# (robots/openarm_follower/config_openarm_follower.py:71,105-116).
+#
+# max_relative_target — upstream default is None: NO per-step displacement cap.
+#   Model output goes to the controller unmodified. Set a scalar to cap every
+#   joint equally, or a mapping to cap per joint. A mapping must name EVERY
+#   joint; upstream ensure_safe_goal_position raises on a partial one.
+#
+#     max_relative_target:
+#       joint1: 0.1
+#       ...
+#       finger_joint1: 0.005     # metres, ~10 steps to close
+#
+# joint_limits — upstream ships defaults, but they CANNOT be copied here:
+#   * key names differ: upstream uses joint_1..joint_7 / "gripper";
+#     this robot uses joint1..joint7 / "finger_joint1"
+#   * units differ: upstream's "gripper": (-5.0, 0.0) is negative-closed,
+#     while finger_joint1 is prismatic 0..0.05 m positive-open. Copying it
+#     would clamp the gripper to <= 0.0 and hold it shut permanently.
+#   Fill from this robot's URDF if you want this layer; left unset it is off.
+#
+#     joint_limits:
+#       joint1: [-3.14, 3.14]
+#       finger_joint1: [0.0, 0.05]
+safety:
+  max_relative_target: null
+  joint_limits: null
