@@ -184,19 +184,32 @@ cameras:
   #   "/cam_wrist_r/image_raw/compressed": 60.0
 
 # -----------------------------------------------------------------------------
-# Safety Parameters
+# Safety
 # -----------------------------------------------------------------------------
-# max_position_delta: maximum joint position change per control step (radians).
+# Upstream defaults, from lerobot OpenArmFollowerConfig
+# (robots/openarm_follower/config_openarm_follower.py:71,105-116).
 #
-# min_position_delta: DISABLED ON PURPOSE — same trap as inference_flip.yaml.
-#   ActionLimiter.process() applies ONE scalar threshold across a vector that
-#   mixes units: joint1..joint7 in radians, finger_joint1 PRISMATIC in metres
-#   over a 0..0.05 m range. The gripper's entire travel (home 0.045 m → the
-#   ~-0.003 m the flip task commands) is 0.048 m — 2 mm short of the 0.05 that
-#   inference_default.yaml suggests. _pending_delta never crosses the mask, the
-#   gripper freezes at its first published value, and the arm reaches correctly
-#   but never closes. If friction later demands a deadband use ~0.002 (the
-#   loader's gripper_error_threshold is 0.003) — never 0.05.
+# max_relative_target — upstream default is None: NO per-step displacement cap.
+#   Model output goes to the controller unmodified. Set a scalar to cap every
+#   joint equally, or a mapping to cap per joint. A mapping must name EVERY
+#   joint; upstream ensure_safe_goal_position raises on a partial one.
+#
+#     max_relative_target:
+#       joint1: 0.1
+#       ...
+#       finger_joint1: 0.005     # metres, ~10 steps to close
+#
+# joint_limits — upstream ships defaults, but they CANNOT be copied here:
+#   * key names differ: upstream uses joint_1..joint_7 / "gripper";
+#     this robot uses joint1..joint7 / "finger_joint1"
+#   * units differ: upstream's "gripper": (-5.0, 0.0) is negative-closed,
+#     while finger_joint1 is prismatic 0..0.05 m positive-open. Copying it
+#     would clamp the gripper to <= 0.0 and hold it shut permanently.
+#   Fill from this robot's URDF if you want this layer; left unset it is off.
+#
+#     joint_limits:
+#       joint1: [-3.14, 3.14]
+#       finger_joint1: [0.0, 0.05]
 safety:
-  max_position_delta: 0.1
-  min_position_delta: null
+  max_relative_target: null
+  joint_limits: null

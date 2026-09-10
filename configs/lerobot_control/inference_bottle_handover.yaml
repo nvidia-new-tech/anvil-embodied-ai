@@ -155,29 +155,32 @@ cameras:
   #   "/cam_wrist_r/image_raw/compressed": 60.0
 
 # -----------------------------------------------------------------------------
-# Safety Parameters
+# Safety
 # -----------------------------------------------------------------------------
-# max_position_delta: maximum joint position change per step (radians).
+# Upstream defaults, from lerobot OpenArmFollowerConfig
+# (robots/openarm_follower/config_openarm_follower.py:71,105-116).
 #
-# min_position_delta: DISABLED HERE ON PURPOSE — the 0.05 that this file's
-#   parent (inference_default.yaml) recommends silently freezes both grippers.
+# max_relative_target — upstream default is None: NO per-step displacement cap.
+#   Model output goes to the controller unmodified. Set a scalar to cap every
+#   joint equally, or a mapping to cap per joint. A mapping must name EVERY
+#   joint; upstream ensure_safe_goal_position raises on a partial one.
 #
-#   ActionLimiter.process() applies ONE scalar threshold to every element of the
-#   action vector (action_limiter.py, `mask = |pending| >= threshold`); there is
-#   no per-joint setting. The vector mixes units: joint1..joint7 are radians,
-#   while finger_joint1 is PRISMATIC in METRES with a 0..0.05 m range (see
-#   anvil-loader config/openarm_v2_inference.yaml). A gripper's entire travel is
-#   therefore at or under the threshold, _pending_delta never crosses the mask,
-#   and the gripper stays pinned at whatever the first inference step published,
-#   while the arm joints cross 0.05 rad trivially and move normally.
+#     max_relative_target:
+#       joint1: 0.1
+#       ...
+#       finger_joint1: 0.005     # metres, ~10 steps to close
 #
-#   That matters more here than anywhere else: this task grasps with the LEFT
-#   hand, hands over, and re-grasps with the RIGHT — a frozen gripper fails it
-#   at step one. Diagnosed and confirmed on the flip checkpoints; see the same
-#   note in inference_flip.yaml.
+# joint_limits — upstream ships defaults, but they CANNOT be copied here:
+#   * key names differ: upstream uses joint_1..joint_7 / "gripper";
+#     this robot uses joint1..joint7 / "finger_joint1"
+#   * units differ: upstream's "gripper": (-5.0, 0.0) is negative-closed,
+#     while finger_joint1 is prismatic 0..0.05 m positive-open. Copying it
+#     would clamp the gripper to <= 0.0 and hold it shut permanently.
+#   Fill from this robot's URDF if you want this layer; left unset it is off.
 #
-#   If motor friction later makes a deadband necessary, use ~0.002 (the loader's
-#   gripper_error_threshold is 0.003, same order) — never 0.05.
+#     joint_limits:
+#       joint1: [-3.14, 3.14]
+#       finger_joint1: [0.0, 0.05]
 safety:
-  max_position_delta: 0.1
-  min_position_delta: null
+  max_relative_target: null
+  joint_limits: null

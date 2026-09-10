@@ -85,8 +85,8 @@ class LeRobotInferenceNode(Node):
             self._setup_model()
 
             self.action_limiter = ActionLimiter(
-                max_delta=self.max_position_delta,
-                min_delta_threshold=self.min_position_delta,
+                max_relative_target=self.max_relative_target,
+                joint_limits=self.joint_limits,
                 model_joint_order=self.joint_names_config.get("model_joint_order", []),
                 controller_joint_order=self.joint_names_config.get("controller_joint_order", []),
                 logger=self.get_logger(),
@@ -182,12 +182,28 @@ class LeRobotInferenceNode(Node):
         self.config = self._load_yaml_config(config_file)
 
         # Fields from YAML config
-        safety_config = self.config.get("safety", {})
-        self.max_position_delta = safety_config.get("max_position_delta", 0.1)
-        self.min_position_delta = safety_config.get("min_position_delta", None)
+        safety_config = self.config.get("safety") or {}
+        # Safety follows upstream openarm_follower.send_action: an absolute
+        # per-joint clip (joint_limits) then a per-step displacement cap
+        # (max_relative_target, scalar or per-joint). Both default to None =
+        # disabled, so a config must opt in explicitly.
+        self.max_relative_target = safety_config.get("max_relative_target", None)
+        self.joint_limits = safety_config.get("joint_limits", None)
+        if isinstance(self.joint_limits, dict):
+            self.joint_limits = {k: tuple(v) for k, v in self.joint_limits.items()}
+
+        for removed, replacement in (
+            ("max_position_delta", "max_relative_target"),
+            ("min_position_delta", "removed entirely; it has no upstream equivalent"),
+        ):
+            if removed in safety_config:
+                raise ValueError(
+                    f"safety.{removed} is no longer supported — use safety.{replacement}. "
+                    "See docs/checkpoint-intake.md."
+                )
 
         self.joint_state_topic = self.config.get("joint_state_topic", "/joint_states")
-        _cameras_cfg: dict = self.config.get("cameras", {})
+        _cameras_cfg: dict = self.config.get("cameras") or {}
         self.camera_mapping = _cameras_cfg.get("mapping", {})
         self.camera_names = list(self.camera_mapping.values())
 
@@ -406,7 +422,8 @@ class LeRobotInferenceNode(Node):
         logger.info(f"Device:     {self.device}")
         logger.info(f"Frequency:  {self.control_freq} Hz")
         if not self.echo_topic_only:
-            logger.info(f"Max delta:  {self.max_position_delta} rad")
+            logger.info(f"Max rel:    {self.max_relative_target}")
+            logger.info(f"Jnt limits: {'set' if self.joint_limits else 'none'}")
 
         h, w, _ = self.image_shape
         res_note = "auto-detected from checkpoint" if self.model_path else "default"

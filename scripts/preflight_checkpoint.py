@@ -298,12 +298,36 @@ def main() -> int:
 
     # ---- safety --------------------------------------------------------------
     safety = y.get("safety") or {}
-    mpd = safety.get("min_position_delta")
-    if mpd is not None and mpd >= 0.01:
-        err(f"min_position_delta = {mpd}. ActionLimiter applies one scalar threshold to a vector "
-            f"mixing radians (joint1-7) with the PRISMATIC gripper in metres (0..0.05 m travel). "
-            f"Anything at this scale freezes the gripper: it reaches, then never closes. Use null, "
-            f"or ~0.002 if friction demands a deadband")
+
+    for gone, hint in (
+        ("max_position_delta", "use safety.max_relative_target (scalar or per-joint)"),
+        ("min_position_delta", "removed entirely — it had no upstream equivalent"),
+    ):
+        if gone in safety:
+            err(f"safety.{gone} is no longer supported: {hint}. The node raises on it.")
+
+    mrt = safety.get("max_relative_target")
+    joints = (y.get("joint_names") or {}).get("controller_joint_order") or []
+    if isinstance(mrt, dict):
+        unknown = sorted(set(mrt) - set(joints))
+        if unknown:
+            err(f"max_relative_target names not in controller_joint_order: {unknown}")
+        # The gripper is prismatic in metres over ~0.05 m; an arm-sized cap in
+        # radians exceeds its whole travel and lets it slam shut in one step
+        # while the arm is still rate-limited.
+        for name, cap in mrt.items():
+            if "finger" in name or "gripper" in name:
+                if cap >= 0.05:
+                    err(f"max_relative_target['{name}'] = {cap} exceeds the gripper's entire "
+                        f"~0.05 m travel — it can close in a single step while the arm is "
+                        f"still moving. Use ~0.005 for roughly 10 steps.")
+                elif cap > 0.02:
+                    warn(f"max_relative_target['{name}'] = {cap} closes the gripper in "
+                         f"under 3 steps; the arm may not have arrived yet")
+    elif isinstance(mrt, (int, float)):
+        warn(f"max_relative_target is a scalar ({mrt}) applied to a vector mixing radians "
+             f"(joint1-7) with the PRISMATIC gripper in metres. Upstream supports a per-joint "
+             f"mapping — prefer that here")
 
     return finish()
 

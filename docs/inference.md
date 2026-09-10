@@ -84,7 +84,7 @@ against the YAML. **Exit code 1 = do not launch.**
 | `task_description` matches `anvil_config.json` | The language tokens are a **conditioning input** — pi0.5 splices them into the prompt. A reworded string degrades actions and reports nothing. |
 | Weights contain no NaN/Inf | A NaN checkpoint still produces motion, just wrong. |
 | `queue_trigger_threshold` ≤ `chunk_size` | The queue can never hold that many, so inference re-triggers every step. |
-| `safety.min_position_delta` scale | See [Safety limits](#safety-limits) — a plausible value freezes the gripper. |
+| `safety.max_relative_target` shape | See [Safety limits](#safety-limits) — a scalar lets the gripper close in one step while the arm is throttled. |
 
 ### Isolating input-side faults without the robot
 
@@ -223,12 +223,12 @@ inference_tuning:
 
   rtc:
     # VLA models only (SmolVLA / Pi0 / Pi0.5)
-    inference_delay: 10
+    inference_delay: 4
     # Fallback step-count before LatencyTracker auto-calibrates.
     # Rule of thumb: ceil(first_inference_ms × control_freq / 1000)
     queue_trigger_threshold: 50
     # Re-trigger inference when ActionQueue depth ≤ this.
-    execution_horizon: 12
+    execution_horizon: 4
     # Steps consumed per chunk before the next inference fires.
     max_guidance_weight: 10.0
     prefix_attention_schedule: EXP
@@ -288,22 +288,39 @@ This also closes a silent path: `_build_observation` defaulted any joint missing
 
 <a id="safety-limits"></a>
 **Safety limits:**
+
+Both layers mirror upstream LeRobot's `openarm_follower.send_action`
+(`openarm_follower.py:276-290`) and are optional — omit a block to disable it.
+
 ```yaml
-# safety:
-#   max_position_delta: 0.1
-#   # Hard limit on joint position change per control step (radians).
-#   min_position_delta: 0.05
-#   # Minimum cumulative change before publishing a new command.
-#   # Holds the last command until threshold is crossed — useful for
-#   # overcoming motor dead zones / friction. Default: disabled (null).
+safety:
+  # Per-step displacement cap. Scalar caps every joint equally; a per-joint
+  # mapping is the correct form here (see the warning below).
+  max_relative_target:
+    joint1: 0.1
+    # ... joint2..joint7 likewise
+    finger_joint1: 0.005
+  # Absolute per-joint bounds. No defaults are assumed — upstream ships values
+  # for its own bus and units, which would be wrong here. Fill from the URDF.
+  # joint_limits:
+  #   joint1: [-3.14, 3.14]
+  #   finger_joint1: [0.0, 0.05]
 ```
 
-> ⚠ **`min_position_delta` mixes units.** `ActionLimiter` applies this one scalar
-> element-wise to a vector that mixes radians (j1–j7) with the **PRISMATIC** gripper in metres
-> (`action_limiter.py:199`: `np.abs(self._pending_delta) >= self.min_delta_threshold`). The
-> gripper only travels 0–0.05 m in total, so the `0.05` shown above — or anything at that
-> scale — masks the gripper permanently while the arm keeps moving: it reaches, then never
-> closes. Use `null`, or ~0.002 if friction genuinely demands a deadband.
+> ⚠ **The action vector mixes units.** `joint1..joint7` are radians;
+> `finger_joint1` is **PRISMATIC in metres** over a ~0.05 m range. One scalar
+> cannot serve both. A scalar `0.1` throttles the arm to 7–18 steps of travel
+> while *exceeding the gripper's entire range*, so the gripper slams shut in a
+> single step while the arm is still descending — the arm never reaches the
+> object before the gripper closes. Measured on `monitor_output`: during the
+> approach the arm was rate-limited on 85% of steps and was still 0.060 rad from
+> the commanded pose when the gripper shut. `finger_joint1: 0.005` gives ~10
+> steps (0.33 s) to close, keeping the gripper in step with the arm.
+
+> **Removed keys.** `max_position_delta` is replaced by `max_relative_target`.
+> `min_position_delta` (a deadband with no upstream equivalent) is removed
+> entirely — a plausible value froze the gripper permanently. The node raises on
+> either key rather than silently dropping the limit.
 
 **Image resolution:** frames are stored 640×480 and the model resizes to 224×224 internally.
 Send native resolution — do not pre-scale.
