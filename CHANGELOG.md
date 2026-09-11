@@ -9,6 +9,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Added
+- Add `tools/benchmark_web/`: a stdlib-only local web tool that scores grasp
+  trials per checkpoint (10 trials/package, split 5 with distractors / 5
+  without), auto-detecting `MODEL_PATH`/`CONFIG_FILE` from the running
+  container or `.env`. Starts automatically with `run_inference.sh up`
+  (`--no-benchmark` to skip, `BENCHMARK_PORT` to change the port). Results in
+  `tools/benchmark_web/results/pack.json`. See
+  [tools/README.md](tools/README.md).
+- Add `tools/README.md` documenting both tools below.
+- Add `tools/model_zoo_index.py`: inventories every checkpoint under
+  `model_zoo/` (policy type, steps, action_type, size), flags identical
+  weights via hash, stray `training_state/` dirs, and empty directories.
+- Add `docker-compose.devsrc.yml` to version control (previously required by
+  `run_inference.sh --dev-src` but untracked).
 - Rename `mcap-upload` CLI entry point to `hf-upload` — clarifies the command uploads a converted LeRobot dataset, not raw MCAP files
 - Add `--debug` flag to `run_inference.sh` (exports `DEBUG=true`; enables action smoothness, queue depth stats, Action FPS in inference node)
 - Add `inference_flags_smoke_test.py` covering all `run_inference.sh` flags via docker shim assertions and live Docker startup tests
@@ -18,10 +31,28 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Add artifact provenance tracking (#28)
 
 ### Changed
+- Reorganize `model_zoo/` so every checkpoint follows
+  `<run-name>/<step>/pretrained_model` (was a mix of nested
+  `checkpoints/<step>/` and flat `<run>_<step>/` layouts); removed a
+  byte-identical duplicate checkpoint (-8.71 GB) and orphaned
+  `training_state/` dirs (-0.76 GB)
+- Translate `docs/checkpoint-intake.md`, `docs/new-machine-setup.md`, and
+  `docs/inference.md` to Traditional Chinese, renamed
+  `docs/checkpoint驗收流程.md`, `docs/新機器安裝指南.md`, and
+  `docs/執行推論.md`
 - Rename `--monitor` flag to `--monitor-enable` in `run_inference.sh` for clarity
 - Rename `--exclude-observation` / `--exclude-cams` to `--exclude-observs` in `anvil-trainer`; adopt dot-suffix notation (`images.chest`, `state.velocity`) that mirrors feature key namespaces directly
 
 ### Fixed
+- Fix dead doc links to `inference-checkpoint-handoff.md` (renamed to
+  `checkpoint驗收流程.md`, translated to Traditional Chinese) in `README.md`
+  and `docs/執行推論.md`, and to two task-named configs removed in favor of
+  `configs/lerobot_control/shapes/` in `docs/執行推論.md` and
+  `scripts/preflight_checkpoint.py`
+- Correct `docs/checkpoint驗收流程.md`'s claim that a VLA policy "refuses to
+  start" without `task_description` — `inference_node.py` only logs a
+  warning and the run instead crashes later with `KeyError: 'task'` inside
+  `tokenizer_processor.py`
 - Fix `anvil-trainer` defaulting to wandb artifact uploads — `--wandb.disable_artifact=true` is now injected by default for both new and resumed runs; override with `--wandb.disable_artifact=false` to re-enable
 - Fix `mcap-to-video` failing silently on legacy MCAP files — schema names without the `/msg/` infix (`sensor_msgs/Image`, `sensor_msgs/CompressedImage`) are now recognised in both topic detection and frame decoding
 - Fix `--camera-filter` semantics: now discards listed cameras (was incorrectly keeping them)
