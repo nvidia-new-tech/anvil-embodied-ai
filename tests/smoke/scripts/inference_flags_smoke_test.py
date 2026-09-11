@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Smoke test for scripts/run_inference.sh flag parsing and Docker integration.
 
-Validates that the documented flags in docs/inference.md and .env.example match
+Validates that the documented flags in docs/執行推論.md and .env.example match
 actual script + compose behaviour.
 
 Sections
@@ -17,13 +17,13 @@ A  Mapping assertions (fast, no containers started)
 B  Startup test — fake-hardware + monitor-enable (requires Docker, no GPU)
    B1. `run_inference.sh --fake-hardware --monitor-enable up -d`
        → lerobot-fake-monitor container starts and logs Joint State / camera Hz
-       → validates docs/inference.md "Test with Fake Hardware First" scenario
+       → validates docs/執行推論.md "Test with Fake Hardware First" scenario
        → validates --fake-hardware and --monitor-enable end-to-end
    B2. `run_inference.sh --fake-hardware --echo-topic-only up -d`
        NOTE: --echo-topic-only exports ECHO_TOPIC_ONLY=true but fake-hardware
              compose ignores this env var (monitor service hardcodes echo_topic_only:=true).
        This test confirms the flag is a no-op in fake-hardware context,
-       matching the documented caveat in docs/inference.md.
+       matching the documented caveat in docs/執行推論.md.
 
 C  Best-effort GPU startup — --debug with smoke checkpoint (skipped if no ckpt)
    C1. `run_inference.sh --fake-hardware --debug --profile inference up -d`

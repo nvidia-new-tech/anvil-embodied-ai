@@ -23,7 +23,7 @@ So compare them on the bench, before the arm is powered.
 
 Usage:
     uv run scripts/preflight_checkpoint.py <checkpoint_dir> \
-        --config configs/lerobot_control/inference_singlearm_flip.yaml
+        --config configs/lerobot_control/shapes/1arm_2cam.yaml
 
     # weights only, no YAML to compare against:
     uv run scripts/preflight_checkpoint.py <checkpoint_dir>
@@ -271,7 +271,7 @@ def main() -> int:
         if uncommanded:
             warn(f"action dims {uncommanded} are never published (no arm claims them). "
                  f"Deliberate for a bimanual checkpoint whose idle arm must not be tracked "
-                 f"(see docs/inference.md, arms[].driven) — unexpected otherwise")
+                 f"(see docs/執行推論.md, arms[].driven) — unexpected otherwise")
 
     # ---- task description ----------------------------------------------------
     yaml_task = (y.get("model") or {}).get("task_description")

@@ -211,7 +211,7 @@ class LeRobotInferenceNode(Node):
             if removed in safety_config:
                 raise ValueError(
                     f"safety.{removed} is no longer supported — use safety.{replacement}. "
-                    "See docs/checkpoint-intake.md."
+                    "See docs/checkpoint驗收流程.md."
                 )
 
         self.joint_state_topic = self.config.get("joint_state_topic", "/joint_states")

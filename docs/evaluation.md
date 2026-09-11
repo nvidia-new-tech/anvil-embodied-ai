@@ -133,7 +133,7 @@ The orange "Raw" line shows model output **before** postprocessing — useful fo
 
 > Requires Docker with NVIDIA GPU support. Set `LEROBOT_EXTRAS` if your model needs extra dependencies (e.g. `pi`, `smolvla`).
 
-> For running inference on a live robot, see [Run Inference](inference.md).
+> For running inference on a live robot, see [執行推論](執行推論.md).
 
 ---
 

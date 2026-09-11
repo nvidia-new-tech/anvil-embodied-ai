@@ -46,7 +46,11 @@ This repository is the embodied AI stack for the Anvil platform — data convers
 | **1. Data Conversion** | Convert MCAP recordings to LeRobot v3.0 datasets → [docs/data-conversion.md](docs/data-conversion.md) (browse results with [dataset-viz](docs/dataset-viz.md)) |
 | **2. Model Training** | Train ACT, Diffusion, SmolVLA, Pi0, or Pi0.5 policies → [docs/training.md](docs/training.md) |
 | **3. Offline Evaluation** | Validate model performance against ground-truth before deploying → [docs/evaluation.md](docs/evaluation.md) |
-| **4. Run Inference** | Deploy trained models on a GPU PC via ROS2 CycloneDDS → [docs/inference.md](docs/inference.md) (configuring a checkpoint you did not train: [checkpoint handoff](docs/inference-checkpoint-handoff.md)) |
+| **4. Run Inference** | Deploy trained models on a GPU PC via ROS2 CycloneDDS → [docs/執行推論.md](docs/執行推論.md) (configuring a checkpoint you did not train: [checkpoint intake](docs/checkpoint驗收流程.md)) |
+
+> **Benchmarking a checkpoint by hand?** See [tools/README.md](tools/README.md)
+> for the scoring web tool that starts alongside `run_inference.sh up`, and the
+> `model_zoo/` inventory tool.
 
 > **Don't have data yet?** The [Anvil OpenARM Quest Teleop Kit](https://shop.anvil.bot/products/openarm-quest-teleop-kit) gives you everything you need to start collecting demonstrations out of the box. See the [data collection guide](https://docs.anvil.bot/software/collecting-data).
 
@@ -118,7 +122,7 @@ Train ACT, Diffusion, SmolVLA, Pi0, or Pi0.5 policies. Checkpoints saved to `mod
 
 Validate model performance before deploying. Two modes: dataset replay (`anvil-eval`) and ROS2 MCAP replay (`anvil-eval-ros`).
 
-### 4. Run Inference ([doc](docs/inference.md))
+### 4. Run Inference ([doc](docs/執行推論.md))
 
 Deploy trained models on a GPU PC via ROS2 CycloneDDS. All inference scenarios go through `scripts/run_inference.sh`.
 
@@ -146,7 +150,7 @@ anvil-embodied-ai/
 │   ├── dataset-viz.md             # Dataset visualization guide
 │   ├── training.md                # Model training guide
 │   ├── evaluation.md              # Offline evaluation guide
-│   └── inference.md               # Inference deployment guide
+│   └── 執行推論.md                # Inference deployment guide (Chinese)
 ├── docker/
 │   └── inference/                 # Dockerfile + entrypoint
 ├── scripts/
