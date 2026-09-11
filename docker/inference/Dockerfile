@@ -1,5 +1,19 @@
-# Use ROS2 Jazzy as base
-FROM ros:jazzy-ros-base
+# syntax=docker/dockerfile:1.7
+# Use ROS2 Jazzy as base.
+#
+# Pinned by digest on purpose. `ros:jazzy-ros-base` is a moving tag — the ROS
+# images are rebuilt regularly — and an unpinned FROM re-resolves on every
+# build. A new digest invalidates the base layer, and because layers stack,
+# EVERYTHING below it rebuilds, including the ~9 GB pip install. That is why a
+# build with an untouched Dockerfile could still redownload every package.
+#
+# Pinning also makes the build reproducible across machines: two hosts building
+# the same commit now start from the same bytes.
+#
+# To move to a newer base, deliberately:
+#   docker buildx imagetools inspect ros:jazzy-ros-base   # read the new Digest
+# then update the line below. Expect a full rebuild when you do.
+FROM ros:jazzy-ros-base@sha256:386d06ec6d4188f731bae5678e07b4cb64a4e4d4152090c0bd1f881dcf7706f5
 
 ARG LEROBOT_VERSION=0.5.1
 ARG LEROBOT_EXTRAS=""
@@ -25,14 +39,21 @@ WORKDIR /workspace
 
 # Base lerobot install — cached as long as version doesn't change
 # transformers + scipy are required for VLA models (pi0, pi0.5, smolvla)
-RUN pip3 install --break-system-packages --no-cache-dir --ignore-installed \
+#
+# The BuildKit cache mount replaces --no-cache-dir. Both keep the downloaded
+# wheels out of the image, but the mount also keeps them on the host, so when
+# this layer IS invalidated pip installs from disk instead of refetching ~9 GB
+# over the network. The cache lives outside the image and never ships with it.
+RUN --mount=type=cache,target=/root/.cache/pip,sharing=locked \
+    pip3 install --break-system-packages --ignore-installed \
     numpy packaging "lerobot==${LEROBOT_VERSION}" matplotlib \
     "transformers==5.3.0" "scipy>=1.14.0,<2.0.0" && \
-    pip3 install --break-system-packages --no-cache-dir "setuptools<80"
+    pip3 install --break-system-packages "setuptools<80"
 
 # Extras — separate layer, only rebuilt when LEROBOT_EXTRAS changes
-RUN if [ -n "${LEROBOT_EXTRAS}" ]; then \
-        pip3 install --break-system-packages --no-cache-dir \
+RUN --mount=type=cache,target=/root/.cache/pip,sharing=locked \
+    if [ -n "${LEROBOT_EXTRAS}" ]; then \
+        pip3 install --break-system-packages \
             "lerobot[${LEROBOT_EXTRAS}]==${LEROBOT_VERSION}"; \
     fi
 
