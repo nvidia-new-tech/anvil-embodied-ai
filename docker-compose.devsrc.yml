@@ -1,0 +1,18 @@
+# Overlay that runs the working-tree node code without rebuilding the image.
+#
+# The package is built with `colcon build --symlink-install`, so /workspace/build
+# symlinks back into /workspace/src — mounting the source over it is enough to
+# change the code the node executes. Verified: the node picks up working-tree
+# changes with no rebuild.
+#
+# Use it when the image is stale but a rebuild is impractical (the pip layer is
+# a ~9 GB download). Behaviour is identical to a rebuilt image; the difference
+# is that nothing is baked in, so anyone else running this image still gets the
+# old code. Rebuild to make it stick.
+#
+#   ./scripts/run_inference.sh --dev-src --monitor-enable up
+#
+services:
+  inference:
+    volumes:
+      - ./ros2/src/lerobot_control:/workspace/src/lerobot_control:ro
