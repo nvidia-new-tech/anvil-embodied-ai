@@ -1,0 +1,214 @@
+#!/usr/bin/env python3
+"""Inventory model_zoo/ and emit a Markdown index.
+
+A checkpoint is any directory holding model.safetensors; policy type, training
+steps and action_type come from the config JSONs next to the weights. Identical
+checkpoints are detected by hashing the weights file, so copies made "just in
+case" (e.g. a _clean duplicate) show up instead of quietly eating disk.
+
+Usage:
+    ./tools/model_zoo_index.py                 # print the table
+    ./tools/model_zoo_index.py --write         # write model_zoo/MODEL_ZOO.md
+    ./tools/model_zoo_index.py --json          # machine-readable
+"""
+
+from __future__ import annotations
+
+import argparse
+import datetime
+import hashlib
+import json
+import os
+from pathlib import Path
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+ZOO = REPO_ROOT / "model_zoo"
+CONFIG_DIR = REPO_ROOT / "configs" / "lerobot_control"
+WEIGHTS = "model.safetensors"
+# Hashing 8 MiB of a 9 GB file is enough to separate training runs while keeping
+# a full-zoo scan fast; weight files of equal size never share a prefix by chance.
+HASH_BYTES = 8 * 2**20
+
+
+def load_json(path: Path) -> dict:
+    try:
+        return json.loads(path.read_text())
+    except (OSError, json.JSONDecodeError):
+        return {}
+
+
+def tree_bytes(path: Path) -> int:
+    total = 0
+    for root, _, files in os.walk(path):
+        for name in files:
+            try:
+                total += os.path.getsize(os.path.join(root, name))
+            except OSError:
+                pass
+    return total
+
+
+def weight_fingerprint(path: Path) -> str:
+    digest = hashlib.sha1()
+    with path.open("rb") as handle:
+        digest.update(handle.read(HASH_BYTES))
+    return f"{path.stat().st_size}:{digest.hexdigest()[:12]}"
+
+
+def scan() -> list[dict]:
+    rows: list[dict] = []
+    for root, dirs, files in os.walk(ZOO):
+        dirs.sort()
+        if WEIGHTS not in files:
+            continue
+        path = Path(root)
+        weights = path / WEIGHTS
+        cfg = load_json(path / "config.json")
+        train = load_json(path / "train_config.json")
+        anvil = load_json(path / "anvil_config.json")
+        stat = weights.stat()
+        rows.append({
+            "path": str(path.relative_to(REPO_ROOT)),
+            "policy": cfg.get("type") or (train.get("policy") or {}).get("type") or "?",
+            "steps": train.get("steps") or cfg.get("steps"),
+            "action_type": anvil.get("action_type") or "—",
+            "has_anvil_config": (path / "anvil_config.json").is_file(),
+            "size_gb": round(tree_bytes(path) / 2**30, 2),
+            "modified": datetime.datetime.fromtimestamp(stat.st_mtime).strftime("%Y-%m-%d"),
+            "fingerprint": weight_fingerprint(weights),
+        })
+    rows.sort(key=lambda r: (r["modified"], r["path"]))
+    return rows
+
+
+def find_orphans() -> list[str]:
+    """Directories that look like checkpoints but hold no weights."""
+    orphans = []
+    for root, dirs, files in os.walk(ZOO):
+        dirs.sort()
+        path = Path(root)
+        if path == ZOO or WEIGHTS in files:
+            continue
+        has_weights_below = any(
+            WEIGHTS in sub_files for _, _, sub_files in os.walk(path)
+        )
+        if not has_weights_below and not any(path.iterdir()):
+            orphans.append(str(path.relative_to(REPO_ROOT)))
+    return orphans
+
+
+def duplicate_groups(rows: list[dict]) -> list[list[str]]:
+    by_print: dict[str, list[str]] = {}
+    for row in rows:
+        by_print.setdefault(row["fingerprint"], []).append(row["path"])
+    return [sorted(paths) for paths in by_print.values() if len(paths) > 1]
+
+
+def training_state_dirs() -> list[tuple[str, float]]:
+    """Optimizer shards — needed to resume training, dead weight for inference."""
+    out = []
+    for root, dirs, _ in os.walk(ZOO):
+        for name in sorted(dirs):
+            if name == "training_state":
+                path = Path(root) / name
+                out.append((str(path.relative_to(REPO_ROOT)),
+                            round(tree_bytes(path) / 2**30, 2)))
+    return out
+
+
+def current_env_model() -> str:
+    env = REPO_ROOT / ".env"
+    if not env.is_file():
+        return ""
+    for line in env.read_text().splitlines():
+        if line.strip().startswith("MODEL_PATH="):
+            return line.split("=", 1)[1].strip().strip('"').strip("'")
+    return ""
+
+
+def render(rows: list[dict]) -> str:
+    total = sum(r["size_gb"] for r in rows)
+    current = current_env_model()
+    # Compare by the model_zoo-relative suffix, not just the last 2 segments —
+    # every renamed checkpoint now ends in ".../<step>/pretrained_model", so a
+    # short suffix matches many rows at once.
+    current_parts = Path(current).parts
+    current_tail = (
+        "/".join(current_parts[current_parts.index("model_zoo") + 1:])
+        if "model_zoo" in current_parts else ""
+    )
+
+    lines = [
+        "# Model zoo index",
+        "",
+        f"_Generated by `tools/model_zoo_index.py` — {len(rows)} checkpoints, "
+        f"{total:.0f} GB total. Re-run `./tools/model_zoo_index.py --write` after "
+        "adding checkpoints._",
+        "",
+        "| Checkpoint | Policy | Train steps | action_type | Size | Modified |",
+        "|---|---|---:|---|---:|---|",
+    ]
+    for row in rows:
+        row_tail = row["path"].split("model_zoo/", 1)[-1]
+        mark = " ⬅ `.env`" if current_tail and row_tail == current_tail else ""
+        steps = row["steps"] if row["steps"] is not None else "?"
+        flag = "" if row["has_anvil_config"] else " ⚠️"
+        lines.append(
+            f"| `{row['path']}`{mark} | {row['policy']} | {steps} | "
+            f"{row['action_type']}{flag} | {row['size_gb']:.2f} GB | {row['modified']} |"
+        )
+
+    dups = duplicate_groups(rows)
+    if dups:
+        lines += ["", "## Identical weights", "",
+                  "Same weights under more than one path — keep one, drop the rest:", ""]
+        for group in dups:
+            lines.append("- " + " ≡ ".join(f"`{p}`" for p in group))
+
+    states = training_state_dirs()
+    if states:
+        reclaim = sum(size for _, size in states)
+        lines += ["", "## Optimizer state", "",
+                  f"`training_state/` is only needed to resume training "
+                  f"({reclaim:.2f} GB here):", ""]
+        lines += [f"- `{path}` — {size:.2f} GB" for path, size in states]
+
+    orphans = find_orphans()
+    if orphans:
+        lines += ["", "## Empty directories", ""]
+        lines += [f"- `{path}`" for path in orphans]
+
+    configs = sorted(p.name for p in CONFIG_DIR.glob("*.yaml")) if CONFIG_DIR.is_dir() else []
+    if configs:
+        lines += ["", "## Inference configs", "",
+                  "A config must match the checkpoint's *shape* (arms, cameras), "
+                  "not its task:", ""]
+        lines += [f"- `configs/lerobot_control/{name}`" for name in configs]
+
+    if current:
+        lines += ["", f"Currently selected in `.env`: `{current}`"]
+    return "\n".join(lines) + "\n"
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--write", action="store_true",
+                        help="write model_zoo/MODEL_ZOO.md instead of printing")
+    parser.add_argument("--json", action="store_true", help="dump raw rows as JSON")
+    args = parser.parse_args()
+
+    rows = scan()
+    if args.json:
+        print(json.dumps(rows, indent=2, ensure_ascii=False))
+        return
+    text = render(rows)
+    if args.write:
+        target = ZOO / "MODEL_ZOO.md"
+        target.write_text(text)
+        print(f"wrote {target.relative_to(REPO_ROOT)} ({len(rows)} checkpoints)")
+    else:
+        print(text, end="")
+
+
+if __name__ == "__main__":
+    main()

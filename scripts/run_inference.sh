@@ -7,11 +7,14 @@
 #
 # Options:
 #   --fake-hardware    Use docker-compose.fake-hardware.yml (DDS bridge test, no real robot)
+#   --dev-src          Mount ros2/src over the image's copy, so the working tree runs
+#                      without a rebuild (see docker-compose.devsrc.yml)
 #   --monitor-enable          Enable monitor profile; for production also sets MONITOR_ENABLE=true,
 #                      pre-creates MONITOR_OUTPUT_DIR as current user, and plots CSV on exit
 #   --echo-topic-only  Subscribe + log FPS without loading a model (sets ECHO_TOPIC_ONLY=true);
 #                      useful to verify DDS connectivity on the GPU PC without a checkpoint
 #   --debug            Enable debug metrics: action smoothness, queue depth, Action FPS (sets DEBUG=true)
+#   --no-benchmark     Don't start the benchmark scoring web tool alongside `up`
 #   -h, --help         Show this message
 #
 # All other arguments (e.g. up --build, down, logs) are passed directly to docker compose.
@@ -23,6 +26,7 @@
 #   IMAGE_TAG            Docker image tag (default: latest)
 #   ROS_DOMAIN_ID        ROS domain ID
 #   HF_CACHE             HuggingFace cache dir (needed for VLA models)
+#   BENCHMARK_PORT       Port for the benchmark scoring tool (default: 8777)
 #
 # Examples:
 #   # Production inference (real robot), no monitor
@@ -48,10 +52,12 @@ REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
 # Defaults
 COMPOSE_FILE="${REPO_ROOT}/docker-compose.yml"
+DEV_SRC=false
 FAKE_HARDWARE=false
 MONITOR_REQUESTED=false
 ECHO_TOPIC_ONLY_REQUESTED=false
 DEBUG_REQUESTED=false
+BENCHMARK_REQUESTED=true
 PASSTHROUGH=()
 
 usage() {
@@ -61,6 +67,10 @@ usage() {
 # Parse our flags; collect everything else for docker compose
 while [[ $# -gt 0 ]]; do
     case "$1" in
+        --dev-src)
+            DEV_SRC=true
+            shift
+            ;;
         --fake-hardware)
             FAKE_HARDWARE=true
             COMPOSE_FILE="${REPO_ROOT}/docker-compose.fake-hardware.yml"
@@ -76,6 +86,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         --debug)
             DEBUG_REQUESTED=true
+            shift
+            ;;
+        --no-benchmark)
+            BENCHMARK_REQUESTED=false
             shift
             ;;
         -h|--help)
@@ -130,7 +144,7 @@ if [[ -n "${MODEL_PATH:-}" ]]; then
         _detected=$(python3 -c "import json; d=json.load(open('${_anvil_config}')); print(d.get('action_type','absolute'))" 2>/dev/null || true)
         if [[ -n "${_detected}" ]]; then
             export ACTION_TYPE="${_detected}"
-            echo "[run_inference] ACTION_TYPE=${ACTION_TYPE} (auto-detected from $(basename $(dirname ${_anvil_config})))"
+            echo "[run_inference] ACTION_TYPE=${ACTION_TYPE} (auto-detected from ${MODEL_PATH})"
         fi
     fi
 fi
@@ -147,11 +161,50 @@ if [[ "$MONITOR_REQUESTED" == true && "$FAKE_HARDWARE" == false ]]; then
     echo "[run_inference] Monitor enabled → output: $MONITOR_DIR"
 fi
 
+# Benchmark scoring tool: only worth starting for an `up`, never for down/logs/ps.
+# Runs on the host (stdlib Python, no deps) and reads MODEL_PATH/CONFIG_FILE from
+# our exported env, so it always scores against the checkpoint this run mounted.
+BENCHMARK_PID=""
+stop_benchmark() {
+    if [[ -n "$BENCHMARK_PID" ]] && kill -0 "$BENCHMARK_PID" 2>/dev/null; then
+        kill "$BENCHMARK_PID" 2>/dev/null || true
+        wait "$BENCHMARK_PID" 2>/dev/null || true
+    fi
+}
+
+if [[ "$BENCHMARK_REQUESTED" == true && " ${PASSTHROUGH[*]} " == *" up "* ]]; then
+    BENCHMARK_PORT="${BENCHMARK_PORT:-8777}"
+    BENCHMARK_LOG="${REPO_ROOT}/tools/benchmark_web/results/server.log"
+    mkdir -p "$(dirname "$BENCHMARK_LOG")"
+    # MODEL_PATH/CONFIG_FILE may come from .env (compose reads it, bash does not),
+    # in which case the tool falls back to parsing .env itself.
+    [[ -n "${MODEL_PATH:-}" ]] && export MODEL_PATH
+    [[ -n "${CONFIG_FILE:-}" ]] && export CONFIG_FILE
+    python3 "${REPO_ROOT}/tools/benchmark_web/server.py" --port "$BENCHMARK_PORT" \
+        >"$BENCHMARK_LOG" 2>&1 &
+    BENCHMARK_PID=$!
+    trap stop_benchmark EXIT INT TERM
+    sleep 1
+    if kill -0 "$BENCHMARK_PID" 2>/dev/null; then
+        echo "[run_inference] Benchmark tool: http://127.0.0.1:${BENCHMARK_PORT} (--no-benchmark to skip)"
+    else
+        # Most likely the port is already taken by an earlier run; keep inference going.
+        echo "[run_inference] WARNING: benchmark tool exited at startup — see $BENCHMARK_LOG"
+        BENCHMARK_PID=""
+    fi
+fi
+
 echo "[run_inference] compose: $(basename "$COMPOSE_FILE") | args: ${PASSTHROUGH[*]:-<none>}"
 
 # Run docker compose and capture exit code (don't let set -e abort before plotting)
 set +e
-docker compose -f "$COMPOSE_FILE" "${PASSTHROUGH[@]}" --remove-orphans
+COMPOSE_ARGS=(-f "$COMPOSE_FILE")
+if [[ "$DEV_SRC" == true ]]; then
+    COMPOSE_ARGS+=(-f "${REPO_ROOT}/docker-compose.devsrc.yml")
+    echo "[run_inference] --dev-src: running ros2/src from the working tree, not the image"
+fi
+
+docker compose "${COMPOSE_ARGS[@]}" "${PASSTHROUGH[@]}" --remove-orphans
 COMPOSE_EXIT=$?
 set -e
 

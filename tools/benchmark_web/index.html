@@ -1,0 +1,447 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Flip 抓取翻面 Benchmark</title>
+<style>
+  :root {
+    --bg: #0f1115; --panel: #171a21; --panel2: #1e222b; --line: #2b313d;
+    --fg: #e6e9ef; --dim: #9aa4b2; --ok: #2ea043; --bad: #d1383d;
+    --accent: #4c8dff; --warn: #d9a406;
+  }
+  @media (prefers-color-scheme: light) {
+    :root {
+      --bg: #f6f7f9; --panel: #fff; --panel2: #eef1f5; --line: #d7dce3;
+      --fg: #1b1f26; --dim: #5b6472;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--fg);
+    font: 14px/1.5 -apple-system, "Noto Sans TC", "Segoe UI", Roboto, sans-serif; }
+  header { padding: 16px 20px; border-bottom: 1px solid var(--line); background: var(--panel);
+    display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+  h1 { font-size: 17px; margin: 0; }
+  h2 { font-size: 14px; margin: 0 0 10px; color: var(--dim); text-transform: uppercase;
+    letter-spacing: .06em; }
+  main { max-width: 1180px; margin: 0 auto; padding: 20px; display: grid; gap: 20px; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 16px; }
+  .row { display: flex; gap: 12px; flex-wrap: wrap; }
+  label { display: block; font-size: 12px; color: var(--dim); margin-bottom: 4px; }
+  select, input, textarea, button {
+    font: inherit; color: var(--fg); background: var(--panel2);
+    border: 1px solid var(--line); border-radius: 6px; padding: 7px 9px; }
+  select, input { width: 100%; }
+  .field { flex: 1 1 320px; min-width: 260px; }
+  button { cursor: pointer; background: var(--panel2); }
+  button:hover { border-color: var(--accent); }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+  button.ghost { background: transparent; }
+  .badge { font-size: 12px; color: var(--dim); }
+  .tasks { display: grid; grid-template-columns: repeat(auto-fit, minmax(330px, 1fr)); gap: 16px; }
+  .task { border: 1px solid var(--line); border-radius: 10px; padding: 12px; background: var(--panel2); }
+  .task-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+  .task-head strong { font-size: 15px; }
+  .score { font-variant-numeric: tabular-nums; font-weight: 700; }
+  .cond { margin-top: 10px; padding-top: 8px; border-top: 1px dashed var(--line); }
+  .cond:first-of-type { margin-top: 0; padding-top: 0; border-top: none; }
+  .cond-head { display: flex; justify-content: space-between; font-size: 12px;
+    color: var(--dim); margin-bottom: 4px; }
+  .cond-head .score { font-size: 13px; }
+  .trial { display: grid; grid-template-columns: 24px 56px 56px 1fr; gap: 6px;
+    align-items: center; padding: 3px 0; }
+  .trial .n { color: var(--dim); font-variant-numeric: tabular-nums; text-align: right; }
+  .trial button { padding: 4px 0; text-align: center; font-size: 12px; }
+  .trial button.sel-ok { background: var(--ok); border-color: var(--ok); color: #fff; }
+  .trial button.sel-bad { background: var(--bad); border-color: var(--bad); color: #fff; }
+  .trial select { font-size: 12px; padding: 4px 6px; }
+  .trial select:disabled { opacity: .35; }
+  .other { grid-column: 2 / -1; font-size: 12px; padding: 4px 6px; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { text-align: left; padding: 7px 8px; border-bottom: 1px solid var(--line);
+    vertical-align: top; }
+  th { color: var(--dim); font-weight: 600; font-size: 12px; }
+  td.num { font-variant-numeric: tabular-nums; white-space: nowrap; }
+  code { background: var(--panel2); padding: 1px 5px; border-radius: 4px; font-size: 12px; }
+  .muted { color: var(--dim); }
+  .toast { position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%);
+    background: var(--ok); color: #fff; padding: 9px 16px; border-radius: 20px;
+    opacity: 0; transition: opacity .2s; pointer-events: none; }
+  .toast.show { opacity: 1; }
+  .overflow { overflow-x: auto; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Flip 抓取翻面 Benchmark</h1>
+  <span class="badge" id="ctx-badge"></span>
+</header>
+
+<main>
+  <section class="card">
+    <h2>本次測試設定</h2>
+    <div class="row">
+      <div class="field">
+        <label for="model">Model checkpoint <span id="model-auto" class="badge"></span></label>
+        <select id="model"></select>
+        <div class="badge" id="model-meta"></div>
+      </div>
+      <div class="field">
+        <label for="config">Inference config</label>
+        <select id="config"></select>
+      </div>
+    </div>
+    <div class="row" style="margin-top:12px">
+      <div class="field">
+        <label>固定測試協定</label>
+        <div class="badge" id="protocol-note"></div>
+      </div>
+      <div class="field">
+        <label for="notes">備註（其他環境、速度設定…）</label>
+        <input id="notes" placeholder="例如：deadband 0.05、右臂單臂">
+      </div>
+      <div class="field" style="flex:0 0 auto; align-self:flex-end">
+        <button class="primary" id="save">儲存這次 session</button>
+        <button class="ghost" id="reset">清空計分</button>
+      </div>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>計分</h2>
+    <div class="tasks" id="tasks"></div>
+  </section>
+
+  <section class="card">
+    <h2>歷史紀錄與成功率</h2>
+    <div class="overflow"><table id="history"></table></div>
+  </section>
+</main>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const TASKS = [
+  { key: "yellow_small", label: "小黃包裹" },
+  { key: "white_small",  label: "小白包裹" },
+  { key: "white_large",  label: "大白包裹" },
+];
+// Fixed protocol: each package gets 5 trials with distractor packages randomly
+// placed left/right, and 5 trials with no other packages on the table.
+const CONDITIONS = [
+  { key: "distractor", label: "隨機放置干擾物", n: 5 },
+  { key: "clean",      label: "無干擾物",       n: 5 },
+];
+const PROTOCOL_NOTE =
+  "目標包裹置於右手下方；手臂測試間不回原點，持續執行下一筆。";
+const REASONS = [
+  { key: "approach_depth", label: "approach 深度不夠" },
+  { key: "lift_height",    label: "夾取後翻的不夠高" },
+  { key: "other",          label: "其他" },
+];
+const REASON_LABEL = Object.fromEntries(REASONS.map(r => [r.key, r.label]));
+
+let ctx = null;
+let editingId = null;
+// state[taskKey][conditionKey][i] = null | {ok:true} | {ok:false, reason, note}
+let state = {};
+
+const $ = id => document.getElementById(id);
+
+function blankState() {
+  state = {};
+  for (const t of TASKS) {
+    state[t.key] = {};
+    for (const c of CONDITIONS) {
+      state[t.key][c.key] = Array.from({ length: c.n }, () => null);
+    }
+  }
+}
+
+function toast(msg, bad) {
+  const el = $("toast");
+  el.textContent = msg;
+  el.style.background = bad ? "var(--bad)" : "var(--ok)";
+  el.classList.add("show");
+  setTimeout(() => el.classList.remove("show"), 1800);
+}
+
+/* ---------- scoring UI ---------- */
+function taskTally(taskKey) {
+  let done = 0, ok = 0;
+  for (const c of CONDITIONS) {
+    for (const t of state[taskKey][c.key]) {
+      if (t !== null) { done++; if (t.ok) ok++; }
+    }
+  }
+  return { done, ok, total: CONDITIONS.reduce((a, c) => a + c.n, 0) };
+}
+
+function renderTrialRow(taskKey, condKey, i) {
+  const trial = state[taskKey][condKey][i];
+  const row = document.createElement("div");
+  row.className = "trial";
+
+  const n = document.createElement("div");
+  n.className = "n";
+  n.textContent = i + 1;
+  row.appendChild(n);
+
+  const okBtn = document.createElement("button");
+  okBtn.textContent = "成功";
+  if (trial && trial.ok) okBtn.classList.add("sel-ok");
+  okBtn.onclick = () => {
+    state[taskKey][condKey][i] = (trial && trial.ok) ? null : { ok: true };
+    renderTasks();
+  };
+  row.appendChild(okBtn);
+
+  const badBtn = document.createElement("button");
+  badBtn.textContent = "失敗";
+  if (trial && !trial.ok) badBtn.classList.add("sel-bad");
+  badBtn.onclick = () => {
+    state[taskKey][condKey][i] = (trial && !trial.ok)
+      ? null
+      : { ok: false, reason: "approach_depth", note: "" };
+    renderTasks();
+  };
+  row.appendChild(badBtn);
+
+  const sel = document.createElement("select");
+  sel.disabled = !(trial && !trial.ok);
+  sel.innerHTML = REASONS.map(r =>
+    `<option value="${r.key}">${r.label}</option>`).join("");
+  if (trial && !trial.ok) sel.value = trial.reason;
+  sel.onchange = () => {
+    state[taskKey][condKey][i] = { ok: false, reason: sel.value, note: trial.note || "" };
+    renderTasks();
+  };
+  row.appendChild(sel);
+
+  const frag = document.createDocumentFragment();
+  frag.appendChild(row);
+
+  if (trial && !trial.ok && trial.reason === "other") {
+    const note = document.createElement("input");
+    note.className = "other";
+    note.placeholder = "失敗原因描述";
+    note.value = trial.note || "";
+    note.oninput = () => { state[taskKey][condKey][i].note = note.value; };
+    const wrap = document.createElement("div");
+    wrap.className = "trial";
+    wrap.appendChild(note);
+    frag.appendChild(wrap);
+  }
+  return frag;
+}
+
+function renderTasks() {
+  const host = $("tasks");
+  host.innerHTML = "";
+  for (const task of TASKS) {
+    const tally = taskTally(task.key);
+
+    const card = document.createElement("div");
+    card.className = "task";
+    const head = document.createElement("div");
+    head.className = "task-head";
+    head.innerHTML = `<strong>${task.label}</strong>
+      <span class="score">${tally.ok} / ${tally.total}
+      <span class="muted" style="font-weight:400">（已記 ${tally.done}）</span></span>`;
+    card.appendChild(head);
+
+    for (const cond of CONDITIONS) {
+      const trials = state[task.key][cond.key];
+      const done = trials.filter(t => t !== null).length;
+      const ok = trials.filter(t => t && t.ok).length;
+
+      const group = document.createElement("div");
+      group.className = "cond";
+      const condHead = document.createElement("div");
+      condHead.className = "cond-head";
+      condHead.innerHTML = `<span>${cond.label}</span>
+        <span class="score">${ok}/${trials.length}<span class="muted" style="font-weight:400">（已記 ${done}）</span></span>`;
+      group.appendChild(condHead);
+
+      trials.forEach((_, i) => group.appendChild(renderTrialRow(task.key, cond.key, i)));
+      card.appendChild(group);
+    }
+
+    host.appendChild(card);
+  }
+}
+
+/* ---------- context ---------- */
+async function loadContext() {
+  const res = await fetch("/api/context");
+  ctx = await res.json();
+
+  const model = $("model"), config = $("config");
+  model.innerHTML = ctx.checkpoints.map(c =>
+    `<option value="${c}">${c}</option>`).join("");
+  config.innerHTML = ctx.configs.map(c =>
+    `<option value="${c}">${c}</option>`).join("");
+  if (ctx.current_model) model.value = ctx.current_model;
+  if (ctx.current_config) config.value = ctx.current_config;
+
+  $("model-auto").textContent = ctx.current_model ? "（已自動帶入 .env / 執行中容器）" : "";
+  $("ctx-badge").textContent =
+    `${ctx.repo_root}${ctx.git_branch ? " @ " + ctx.git_branch : ""}`;
+  showMeta();
+  model.onchange = showMeta;
+}
+
+function showMeta() {
+  const meta = (ctx.checkpoint_meta || {})[$("model").value] || {};
+  const bits = [];
+  if (meta.policy_type) bits.push(`policy: ${meta.policy_type}`);
+  if (meta.steps) bits.push(`steps: ${meta.steps}`);
+  $("model-meta").textContent = bits.join(" · ");
+}
+
+/* ---------- persistence ---------- */
+function collect() {
+  const results = {};
+  for (const t of TASKS) {
+    results[t.key] = {};
+    for (const c of CONDITIONS) {
+      results[t.key][c.key] = state[t.key][c.key].map(x => x === null ? null : (x.ok
+        ? { ok: true }
+        : { ok: false, reason: x.reason, note: x.note || "" }));
+    }
+  }
+  return {
+    id: editingId || undefined,
+    model: $("model").value,
+    config: $("config").value,
+    protocol: PROTOCOL_NOTE,
+    notes: $("notes").value,
+    results,
+  };
+}
+
+async function save() {
+  const payload = collect();
+  if (!payload.model) { toast("沒有選擇 checkpoint", true); return; }
+  const recorded = Object.values(payload.results)
+    .flat().filter(x => x !== null).length;
+  if (!recorded) { toast("還沒有任何計分", true); return; }
+  const res = await fetch("/api/sessions", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) { toast("儲存失敗", true); return; }
+  const { session } = await res.json();
+  editingId = session.id;
+  toast("已儲存");
+  loadHistory();
+}
+
+function summarize(session) {
+  const per = {}, reasons = {};
+  let ok = 0, total = 0;
+  for (const t of TASKS) {
+    const byCond = (session.results || {})[t.key] || {};
+    let taskOk = 0, taskN = 0;
+    for (const c of CONDITIONS) {
+      const trials = byCond[c.key] || [];
+      const recorded = trials.filter(x => x !== null);
+      const good = recorded.filter(x => x.ok).length;
+      taskOk += good; taskN += recorded.length;
+      for (const x of recorded) {
+        if (!x.ok) reasons[x.reason] = (reasons[x.reason] || 0) + 1;
+      }
+    }
+    per[t.key] = { ok: taskOk, n: taskN };
+    ok += taskOk; total += taskN;
+  }
+  return { per, reasons, ok, total };
+}
+
+async function loadHistory() {
+  const res = await fetch("/api/sessions");
+  const { sessions } = await res.json();
+  const table = $("history");
+
+  if (!sessions.length) {
+    table.innerHTML = `<tr><td class="muted">還沒有紀錄。</td></tr>`;
+    return;
+  }
+
+  const head = `<tr>
+    <th>時間</th><th>Model / Config</th>
+    ${TASKS.map(t => `<th>${t.label}</th>`).join("")}
+    <th>總成功率</th><th>失敗原因</th><th>備註</th><th></th></tr>`;
+
+  const rows = sessions.slice().reverse().map(s => {
+    const sum = summarize(s);
+    const when = (s.updated_at || "").replace("T", " ").replace("+00:00", "Z");
+    const cells = TASKS.map(t => {
+      const p = sum.per[t.key];
+      return `<td class="num">${p.n ? `${p.ok}/${p.n}` : '<span class="muted">—</span>'}</td>`;
+    }).join("");
+    const rate = sum.total
+      ? `${sum.ok}/${sum.total} <span class="muted">(${Math.round(100 * sum.ok / sum.total)}%)</span>`
+      : "—";
+    const why = Object.entries(sum.reasons)
+      .sort((a, b) => b[1] - a[1])
+      .map(([k, v]) => `${REASON_LABEL[k] || k} ×${v}`).join("<br>") || '<span class="muted">—</span>';
+    return `<tr>
+      <td class="num muted">${when}</td>
+      <td><code>${s.model || ""}</code><br><code class="muted">${s.config || ""}</code></td>
+      ${cells}
+      <td class="num">${rate}</td>
+      <td>${why}</td>
+      <td class="muted">${(s.notes || "").replace(/</g, "&lt;")}</td>
+      <td><button class="ghost" data-load="${s.id}">載入</button>
+          <button class="ghost" data-del="${s.id}">刪除</button></td>
+    </tr>`;
+  }).join("");
+
+  table.innerHTML = head + rows;
+
+  table.querySelectorAll("[data-del]").forEach(b => b.onclick = async () => {
+    if (!confirm("刪除這筆紀錄？")) return;
+    await fetch(`/api/sessions/${b.dataset.del}`, { method: "DELETE" });
+    if (editingId === b.dataset.del) editingId = null;
+    loadHistory();
+  });
+  table.querySelectorAll("[data-load]").forEach(b => b.onclick = () => {
+    const s = sessions.find(x => x.id === b.dataset.load);
+    if (!s) return;
+    editingId = s.id;
+    $("model").value = s.model;
+    $("config").value = s.config;
+    $("notes").value = s.notes || "";
+    blankState();
+    for (const t of TASKS) {
+      const byCond = (s.results || {})[t.key] || {};
+      for (const c of CONDITIONS) {
+        const saved = byCond[c.key] || [];
+        state[t.key][c.key] = Array.from({ length: c.n }, (_, i) => saved[i] ?? null);
+      }
+    }
+    showMeta();
+    renderTasks();
+    toast("已載入紀錄，繼續編輯後再儲存");
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  });
+}
+
+/* ---------- boot ---------- */
+$("save").onclick = save;
+$("reset").onclick = () => {
+  if (!confirm("清空目前計分？（已儲存的紀錄不受影響）")) return;
+  editingId = null;
+  blankState();
+  renderTasks();
+};
+$("protocol-note").textContent = PROTOCOL_NOTE;
+
+blankState();
+renderTasks();
+loadContext().then(loadHistory);
+</script>
+</body>
+</html>

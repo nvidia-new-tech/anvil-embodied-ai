@@ -1,0 +1,624 @@
+{
+  "sessions": [
+    {
+      "model": "model_zoo/smolvla-flip-pack-half-plus-20260911/005000/pretrained_model",
+      "config": "configs/lerobot_control/shapes/1arm_2cam.yaml",
+      "protocol": "目標包裹置於右手下方；手臂測試間不回原點，持續執行下一筆。",
+      "notes": "",
+      "results": {
+        "yellow_small": {
+          "distractor": [
+            {
+              "ok": false,
+              "reason": "approach_depth",
+              "note": ""
+            },
+            {
+              "ok": true
+            },
+            {
+              "ok": true
+            },
+            {
+              "ok": true
+            },
+            {
+              "ok": false,
+              "reason": "approach_depth",
+              "note": ""
+            }
+          ],
+          "clean": [
+            {
+              "ok": false,
+              "reason": "approach_depth",
+              "note": ""
+            },
+            {
+              "ok": false,
+              "reason": "approach_depth",
+              "note": ""
+            },
+            {
+              "ok": false,
+              "reason": "approach_depth",
+              "note": ""
+            },
+            {
+              "ok": false,
+              "reason": "approach_depth",
+              "note": ""
+            },
+            {
+              "ok": true
+            }
+          ]
+        },
+        "white_small": {
+          "distractor": [
+            {
+              "ok": true
+            },
+            {
+              "ok": false,
+              "reason": "lift_height",
+              "note": ""
+            },
+            {
+              "ok": false,
+              "reason": "approach_depth",
+              "note": ""
+            },
+            {
+              "ok": false,
+              "reason": "approach_depth",
+              "note": ""
+            },
+            {
+              "ok": true
+            }
+          ],
+          "clean": [
+            {
+              "ok": false,
+              "reason": "approach_depth",
+              "note": ""
+            },
+            {
+              "ok": true
+            },
+            {
+              "ok": false,
+              "reason": "lift_height",
+              "note": ""
+            },
+            {
+              "ok": false,
+              "reason": "approach_depth",
+              "note": ""
+            },
+            {
+              "ok": false,
+              "reason": "approach_depth",
+              "note": ""
+            }
+          ]
+        },
+        "white_large": {
+          "distractor": [
+            {
+              "ok": false,
+              "reason": "approach_depth",
+              "note": ""
+            },
+            {
+              "ok": false,
+              "reason": "lift_height",
+              "note": ""
+            },
+            {
+              "ok": true
+            },
+            {
+              "ok": true
+            },
+            {
+              "ok": true
+            }
+          ],
+          "clean": [
+            {
+              "ok": false,
+              "reason": "approach_depth",
+              "note": ""
+            },
+            {
+              "ok": false,
+              "reason": "approach_depth",
+              "note": ""
+            },
+            {
+              "ok": false,
+              "reason": "approach_depth",
+              "note": ""
+            },
+            {
+              "ok": true
+            },
+            {
+              "ok": false,
+              "reason": "lift_height",
+              "note": ""
+            }
+          ]
+        }
+      },
+      "id": "1f6a2d944238",
+      "updated_at": "2026-09-11T06:02:27+00:00",
+      "created_at": "2026-09-11T06:02:27+00:00"
+    },
+    {
+      "model": "model_zoo/smolvla-flip-pack-plus-20260904/005000/pretrained_model",
+      "config": "configs/lerobot_control/shapes/1arm_2cam.yaml",
+      "protocol": "目標包裹置於右手下方；手臂測試間不回原點，持續執行下一筆。",
+      "notes": "",
+      "results": {
+        "yellow_small": {
+          "distractor": [
+            {
+              "ok": true
+            },
+            {
+              "ok": true
+            },
+            {
+              "ok": true
+            },
+            {
+              "ok": true
+            },
+            {
+              "ok": false,
+              "reason": "approach_depth",
+              "note": ""
+            }
+          ],
+          "clean": [
+            {
+              "ok": false,
+              "reason": "approach_depth",
+              "note": ""
+            },
+            {
+              "ok": true
+            },
+            {
+              "ok": true
+            },
+            {
+              "ok": true
+            },
+            {
+              "ok": false,
+              "reason": "approach_depth",
+              "note": ""
+            }
+          ]
+        },
+        "white_small": {
+          "distractor": [
+            {
+              "ok": true
+            },
+            {
+              "ok": true
+            },
+            {
+              "ok": false,
+              "reason": "approach_depth",
+              "note": ""
+            },
+            {
+              "ok": true
+            },
+            {
+              "ok": true
+            }
+          ],
+          "clean": [
+            {
+              "ok": true
+            },
+            {
+              "ok": true
+            },
+            {
+              "ok": true
+            },
+            {
+              "ok": false,
+              "reason": "other",
+              "note": "內容物太重沒翻過去"
+            },
+            {
+              "ok": true
+            }
+          ]
+        },
+        "white_large": {
+          "distractor": [
+            {
+              "ok": true
+            },
+            {
+              "ok": false,
+              "reason": "lift_height",
+              "note": ""
+            },
+            {
+              "ok": true
+            },
+            {
+              "ok": false,
+              "reason": "approach_depth",
+              "note": ""
+            },
+            {
+              "ok": true
+            }
+          ],
+          "clean": [
+            {
+              "ok": false,
+              "reason": "lift_height",
+              "note": ""
+            },
+            {
+              "ok": false,
+              "reason": "other",
+              "note": "夾不住內容物品太大"
+            },
+            {
+              "ok": true
+            },
+            {
+              "ok": false,
+              "reason": "lift_height",
+              "note": ""
+            },
+            {
+              "ok": false,
+              "reason": "lift_height",
+              "note": ""
+            }
+          ]
+        }
+      },
+      "id": "3fb99340e0f3",
+      "updated_at": "2026-09-11T06:09:43+00:00",
+      "created_at": "2026-09-11T06:09:43+00:00"
+    },
+    {
+      "model": "model_zoo/smolvla-flip-pack-combined-20260904/005000/pretrained_model",
+      "config": "configs/lerobot_control/shapes/1arm_2cam.yaml",
+      "protocol": "目標包裹置於右手下方；手臂測試間不回原點，持續執行下一筆。",
+      "notes": "",
+      "results": {
+        "yellow_small": {
+          "distractor": [
+            {
+              "ok": true
+            },
+            {
+              "ok": true
+            },
+            {
+              "ok": false,
+              "reason": "approach_depth",
+              "note": ""
+            },
+            {
+              "ok": false,
+              "reason": "approach_depth",
+              "note": ""
+            },
+            {
+              "ok": true
+            }
+          ],
+          "clean": [
+            {
+              "ok": false,
+              "reason": "lift_height",
+              "note": ""
+            },
+            {
+              "ok": true
+            },
+            {
+              "ok": true
+            },
+            {
+              "ok": false,
+              "reason": "approach_depth",
+              "note": ""
+            },
+            {
+              "ok": false,
+              "reason": "approach_depth",
+              "note": ""
+            }
+          ]
+        },
+        "white_small": {
+          "distractor": [
+            {
+              "ok": false,
+              "reason": "other",
+              "note": "內容物品太重翻不過去"
+            },
+            {
+              "ok": false,
+              "reason": "approach_depth",
+              "note": ""
+            },
+            {
+              "ok": false,
+              "reason": "approach_depth",
+              "note": ""
+            },
+            {
+              "ok": false,
+              "reason": "approach_depth",
+              "note": ""
+            },
+            {
+              "ok": true
+            }
+          ],
+          "clean": [
+            {
+              "ok": true
+            },
+            {
+              "ok": true
+            },
+            {
+              "ok": false,
+              "reason": "approach_depth",
+              "note": ""
+            },
+            {
+              "ok": false,
+              "reason": "approach_depth",
+              "note": ""
+            },
+            {
+              "ok": false,
+              "reason": "lift_height",
+              "note": ""
+            }
+          ]
+        },
+        "white_large": {
+          "distractor": [
+            {
+              "ok": true
+            },
+            {
+              "ok": false,
+              "reason": "lift_height",
+              "note": ""
+            },
+            {
+              "ok": false,
+              "reason": "approach_depth",
+              "note": ""
+            },
+            {
+              "ok": false,
+              "reason": "lift_height",
+              "note": ""
+            },
+            {
+              "ok": false,
+              "reason": "approach_depth",
+              "note": ""
+            }
+          ],
+          "clean": [
+            {
+              "ok": true
+            },
+            {
+              "ok": false,
+              "reason": "lift_height",
+              "note": ""
+            },
+            {
+              "ok": false,
+              "reason": "lift_height",
+              "note": ""
+            },
+            {
+              "ok": false,
+              "reason": "approach_depth",
+              "note": ""
+            },
+            {
+              "ok": false,
+              "reason": "lift_height",
+              "note": ""
+            }
+          ]
+        }
+      },
+      "id": "5a12d5be9f4e",
+      "updated_at": "2026-09-11T06:17:23+00:00",
+      "created_at": "2026-09-11T06:17:23+00:00"
+    },
+    {
+      "model": "model_zoo/smolvla-flip/005000/pretrained_model",
+      "config": "configs/lerobot_control/shapes/2arm_3cam.yaml",
+      "protocol": "目標包裹置於右手下方；手臂測試間不回原點，持續執行下一筆。",
+      "notes": "多數時候需要點home才會繼續動作 否則卡在原點附近甩手(OOD)",
+      "results": {
+        "yellow_small": {
+          "distractor": [
+            {
+              "ok": false,
+              "reason": "lift_height",
+              "note": ""
+            },
+            {
+              "ok": false,
+              "reason": "approach_depth",
+              "note": ""
+            },
+            {
+              "ok": false,
+              "reason": "approach_depth",
+              "note": ""
+            },
+            {
+              "ok": false,
+              "reason": "lift_height",
+              "note": ""
+            },
+            {
+              "ok": true
+            }
+          ],
+          "clean": [
+            {
+              "ok": false,
+              "reason": "approach_depth",
+              "note": ""
+            },
+            {
+              "ok": false,
+              "reason": "approach_depth",
+              "note": ""
+            },
+            {
+              "ok": true
+            },
+            {
+              "ok": false,
+              "reason": "approach_depth",
+              "note": ""
+            },
+            {
+              "ok": false,
+              "reason": "approach_depth",
+              "note": ""
+            }
+          ]
+        },
+        "white_small": {
+          "distractor": [
+            {
+              "ok": false,
+              "reason": "approach_depth",
+              "note": ""
+            },
+            {
+              "ok": true
+            },
+            {
+              "ok": true
+            },
+            {
+              "ok": false,
+              "reason": "lift_height",
+              "note": ""
+            },
+            {
+              "ok": true
+            }
+          ],
+          "clean": [
+            {
+              "ok": true
+            },
+            {
+              "ok": false,
+              "reason": "approach_depth",
+              "note": ""
+            },
+            {
+              "ok": false,
+              "reason": "approach_depth",
+              "note": ""
+            },
+            {
+              "ok": false,
+              "reason": "approach_depth",
+              "note": ""
+            },
+            {
+              "ok": true
+            }
+          ]
+        },
+        "white_large": {
+          "distractor": [
+            {
+              "ok": false,
+              "reason": "approach_depth",
+              "note": ""
+            },
+            {
+              "ok": false,
+              "reason": "approach_depth",
+              "note": ""
+            },
+            {
+              "ok": false,
+              "reason": "lift_height",
+              "note": ""
+            },
+            {
+              "ok": false,
+              "reason": "lift_height",
+              "note": ""
+            },
+            {
+              "ok": false,
+              "reason": "lift_height",
+              "note": ""
+            }
+          ],
+          "clean": [
+            {
+              "ok": false,
+              "reason": "lift_height",
+              "note": ""
+            },
+            {
+              "ok": true
+            },
+            {
+              "ok": false,
+              "reason": "approach_depth",
+              "note": ""
+            },
+            {
+              "ok": false,
+              "reason": "lift_height",
+              "note": ""
+            },
+            {
+              "ok": false,
+              "reason": "approach_depth",
+              "note": ""
+            }
+          ]
+        }
+      },
+      "id": "7541eeec5813",
+      "updated_at": "2026-09-11T06:36:48+00:00",
+      "created_at": "2026-09-11T06:36:48+00:00"
+    }
+  ]
+}
