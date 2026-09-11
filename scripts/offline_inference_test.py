@@ -93,13 +93,41 @@ def main() -> int:
     print(f"  type {mtype} | state {state_w} | action {action_w} | device {device}")
     print(f"  task '{task}'")
 
-    errors = []
 
     # --- 1. load -------------------------------------------------------------
     print("\n[1] Loading policy and processors")
     t0 = time.perf_counter()
     from lerobot.configs.policies import PreTrainedConfig
     from lerobot.processor import PolicyProcessorPipeline
+
+    # Load through the project's own ModelLoader, not from_pretrained directly.
+    # ModelLoader has a low-memory path (build on the meta device, then
+    # load_state_dict(assign=True)) that holds exactly ONE copy of the weights.
+    # The stock loader allocates the architecture and then loads on top of it,
+    # peaking at roughly twice the weight size — for pi0.5 that is ~22 GB and
+    # the process is OOM-killed on a 30 GB host. Using ModelLoader also makes
+    # this test exercise the same path the node does, which is the point.
+    sys.path.insert(0, str(Path("ros2/src/lerobot_control").resolve()))
+    try:
+        from lerobot_control.model_loader import ModelLoader
+    except ImportError:
+        ModelLoader = None
+
+    if ModelLoader is not None:
+        class _Log:
+            def info(self, m): print(f"  {m}")
+            def warn(self, m): print(f"  WARN  {m}")
+            def warning(self, m): print(f"  WARN  {m}")
+            def error(self, m): print(f"  ERROR {m}")
+            def debug(self, m): pass
+
+        loader = ModelLoader(model_path=str(ckpt), device=device,
+                             model_type=mtype, logger=_Log())
+        policy, pre, post = loader.load_with_processors()
+        policy.to(device).eval()
+        print(f"  ok  loaded in {time.perf_counter()-t0:.1f}s via ModelLoader")
+        return _run(args, cfg, ycfg, ckpt, mtype, state_w, action_w, task,
+                    device, is_vla, policy, pre, post, t0)
 
     if mtype == "smolvla":
         import lerobot.policies.smolvla.processor_smolvla  # noqa: F401
@@ -132,6 +160,13 @@ def main() -> int:
             except (TypeError, AttributeError):
                 pass
     print(f"  ok  loaded in {time.perf_counter()-t0:.1f}s")
+    return _run(args, cfg, ycfg, ckpt, mtype, state_w, action_w, task,
+                device, is_vla, policy, pre, post, t0)
+
+
+def _run(args, cfg, ycfg, ckpt, mtype, state_w, action_w, task,
+         device, is_vla, policy, pre, post, t0):
+    errors = []
 
     # training action range, for the sanity band
     from safetensors.numpy import load_file
