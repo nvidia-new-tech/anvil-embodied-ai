@@ -306,8 +306,11 @@ class TrainingConfig:
                 sys.argv = [a for a in sys.argv if not a.startswith("--policy.type=")]
 
             # Inject backbone settings for non-VLA policies (ACT, Diffusion).
-            # Pi0.5 / SmolVLA use their own vision encoders and ignore these flags.
-            _VLA_POLICIES = {"pi05", "smolvla", "pi0"}
+            # Pi0.5 / SmolVLA / pi0 / GR00T use their own vision encoders and
+            # don't have vision_backbone/pretrained_backbone_weights fields at
+            # all -- GrootConfig raises a draccus DecodingError if these are
+            # injected (SigLip2/Eagle2 tower, not a ResNet).
+            _VLA_POLICIES = {"pi05", "smolvla", "pi0", "groot"}
             if policy_type not in _VLA_POLICIES and not has_policy_path:
                 _BACKBONE_MAP = {
                     "resnet18": ("resnet18", "ResNet18_Weights.IMAGENET1K_V1"),
