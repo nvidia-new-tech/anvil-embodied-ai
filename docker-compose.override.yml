@@ -1,0 +1,17 @@
+# The :ee-space image was produced by committing anvil_msgs into :latest, not by
+# rebuilding, so it still carries the pre-EE lerobot_control source. This repo
+# now HAS the EE source (merged from cpsu/ee-space-inference), so mount it over
+# the image's copy. The image installs lerobot_control in develop mode
+# (build/lerobot_control/lerobot_control is a symlink into src), so this is what
+# makes inference_node.py's EE path and ee_pose_limiter.py actually run.
+#
+# Without it nothing errors: inference_node.py:36-39 catches the ImportError,
+# CommandedEEPose becomes None, the arm entry's msg_type never matches, and the
+# EE arm is silently dropped from the publish path.
+#
+# Delete this file once the image is rebuilt from the merged Dockerfile
+# (docker compose build), which copies ros2/src in properly.
+services:
+  inference:
+    volumes:
+      - ./ros2/src/lerobot_control:/workspace/src/lerobot_control:ro
