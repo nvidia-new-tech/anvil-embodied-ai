@@ -33,8 +33,14 @@ from rclpy.executors import MultiThreadedExecutor
 from rclpy.node import Node
 from std_msgs.msg import Float64MultiArray
 
+try:
+    from anvil_msgs.msg import CommandedEEPose
+except ImportError:  # pragma: no cover - only needed for EE-space arms
+    CommandedEEPose = None
+
 from .action_limiter import ActionLimiter
 from .delta_restore import resolve_action_type, restore_delta_chunk
+from .ee_pose_limiter import EEPoseLimiter
 from .metrics_tracker import MetricsTracker
 from .model_loader import ModelLoader, set_deterministic_mode
 
@@ -113,6 +119,19 @@ class LeRobotInferenceNode(Node):
                 )
 
             self._setup_publishers()
+
+            # One EEPoseLimiter per EE-space arm (msg_type: CommandedEEPose in
+            # the arm's config entry). See ee_pose_limiter.py for exactly what
+            # this does and does NOT protect against — position-delta rate
+            # limiting only, no rotation-delta limit, no readback against the
+            # robot's actual current pose.
+            self._ee_limiters: dict = {
+                arm_name: EEPoseLimiter(
+                    max_position_delta_m=arm_config.get("max_position_delta_m", 0.005),
+                )
+                for arm_name, arm_config in self.arms_config.items()
+                if arm_config.get("msg_type") == "CommandedEEPose"
+            }
 
             # Unified split-timer architecture for all models:
             #   _obs_update:    preprocess (+ inference for non-VLA)
@@ -539,12 +558,24 @@ class LeRobotInferenceNode(Node):
         """Setup action publishers."""
         self.arm_publishers: dict[str, rclpy.publisher.Publisher] = {}
         for arm_name, arm_config in self.arms_config.items():
-            cmd_topic = arm_config.get(
-                "command_topic",
-                f"/{arm_name}_forward_position_controller/commands",
-            )
-            self.arm_publishers[arm_name] = self.create_publisher(Float64MultiArray, cmd_topic, 10)
-            self.get_logger().info(f"Publishing to: {cmd_topic}")
+            is_ee = arm_config.get("msg_type") == "CommandedEEPose"
+            if is_ee:
+                if CommandedEEPose is None:
+                    raise ImportError(
+                        f"arm '{arm_name}' has msg_type: CommandedEEPose but the "
+                        "anvil_msgs package is not built/importable. Rebuild the "
+                        "ROS2 workspace with ros2/src/anvil_msgs included."
+                    )
+                cmd_topic = arm_config.get("command_topic", f"/commanded_ee_{arm_name}")
+                self.arm_publishers[arm_name] = self.create_publisher(CommandedEEPose, cmd_topic, 10)
+                self.get_logger().info(f"Publishing (EE pose) to: {cmd_topic}")
+            else:
+                cmd_topic = arm_config.get(
+                    "command_topic",
+                    f"/{arm_name}_forward_position_controller/commands",
+                )
+                self.arm_publishers[arm_name] = self.create_publisher(Float64MultiArray, cmd_topic, 10)
+                self.get_logger().info(f"Publishing to: {cmd_topic}")
 
         if self._monitor_enable:
             self._monitor_obs_pub = self.create_publisher(Float64MultiArray, "/monitor/obs_state", 10)
@@ -851,8 +882,37 @@ class LeRobotInferenceNode(Node):
             start_idx = arm_config.get("action_start", 0)
             end_idx = arm_config.get("action_end", len(action))
             ros_prefix = arm_config.get("ros_prefix", arm_name)
+            is_ee = arm_config.get("msg_type") == "CommandedEEPose"
 
             arm_action = action[start_idx:end_idx].copy()
+
+            if is_ee:
+                # EE-space arm: [x, y, z, qx, qy, qz, qw, gripper], no joint
+                # names, action_limiter does not apply. See ee_pose_limiter.py
+                # for exactly what IS and is NOT checked here.
+                arm_action = self._ee_limiters[arm_name].process(arm_action)
+
+                if self._debug:
+                    formatted = ", ".join(f"{v:.4f}" for v in arm_action)
+                    self.get_logger().info(f"[DEBUG] cmd [{arm_name}] (EE): [{formatted}]")
+
+                msg = CommandedEEPose()
+                msg.header.stamp = self.get_clock().now().to_msg()
+                msg.header.frame_id = "world"
+                msg.pose.position.x = float(arm_action[0])
+                msg.pose.position.y = float(arm_action[1])
+                msg.pose.position.z = float(arm_action[2])
+                msg.pose.orientation.x = float(arm_action[3])
+                msg.pose.orientation.y = float(arm_action[4])
+                msg.pose.orientation.z = float(arm_action[5])
+                msg.pose.orientation.w = float(arm_action[6])
+                msg.gripper = float(arm_action[7])
+                if arm_name in self.arm_publishers:
+                    self.arm_publishers[arm_name].publish(msg)
+
+                if self._monitor_enable:
+                    monitor_cmd_parts.append(arm_action)
+                continue
 
             arm_current = None
             if current_positions:

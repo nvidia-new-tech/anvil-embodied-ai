@@ -61,7 +61,8 @@ RUN --mount=type=cache,target=/root/.cache/pip,sharing=locked \
 # on import. Remove groot lines from policies/__init__.py since we don't use GR00T.
 RUN find /usr/local/lib -path "*/lerobot/policies/__init__.py" -exec sed -i '/groot/d' {} \;
 
-# Copy ROS2 package (changes often → late layer)
+# Copy ROS2 packages (changes often → late layer)
+COPY ros2/src/anvil_msgs /workspace/src/anvil_msgs
 COPY ros2/src/lerobot_control /workspace/src/lerobot_control
 
 # Copy configs (lerobot_control + cyclonedds)

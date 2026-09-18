@@ -1,0 +1,123 @@
+# =============================================================================
+# SHAPE CONFIG — 1arm_2cam_ee
+#   1 arm(s), EE-space ACTION (8: x,y,z,qx,qy,qz,qw,gripper) x 2 camera(s)
+#   observation.state is still JOINT-space (8 DOF) -- only the action changed.
+#   publishes: right, as anvil_msgs/CommandedEEPose to /commanded_ee_right
+# =============================================================================
+# UNTESTED against real or fake hardware as of this file's creation. Built
+# for pack_pick_place_20260911_ee (smolvla checkpoint 005000). Start with
+# echo_topic_only:=true, then very low control_frequency and someone at the
+# e-stop, before trusting this at normal speed. See
+# ros2/src/lerobot_control/lerobot_control/ee_pose_limiter.py's docstring for
+# exactly what safety limiting this does and does NOT provide -- in
+# particular: no rotation-delta limit, and the first command after startup is
+# not checked against the arm's actual physical position.
+#
+# Confirm the match before launching:
+#
+#   ./.venv/bin/python scripts/preflight_checkpoint.py <ckpt> \
+#     --config configs/lerobot_control/shapes/1arm_2cam_ee.yaml
+#
+# Required from the checkpoint's config.json:
+#   observation.state shape [8]   action shape [8]
+#   action names: [ee_pos_x, ee_pos_y, ee_pos_z, ee_quat_x, ee_quat_y,
+#                  ee_quat_z, ee_quat_w, ee_gripper]
+#   cameras exactly: chest, wrist_r
+# =============================================================================
+# Set via ROS2 launch args, not here:
+#   model_path, device, control_frequency, image_height/width, echo_topic_only
+
+# -----------------------------------------------------------------------------
+# Model
+# -----------------------------------------------------------------------------
+model:
+  task_description: null
+
+# -----------------------------------------------------------------------------
+# Inference Tuning
+# -----------------------------------------------------------------------------
+inference_tuning:
+  act:
+    n_action_steps: null
+    temporal_ensemble_coeff: null
+  diffusion:
+    n_action_steps: null
+    num_inference_steps: 10
+  rtc:
+    inference_delay: 10
+    queue_trigger_threshold: 50
+    execution_horizon: 12
+    max_guidance_weight: 10.0
+    prefix_attention_schedule: EXP
+
+# -----------------------------------------------------------------------------
+# Joint Configuration (observation ONLY -- action is EE-space, see below)
+# -----------------------------------------------------------------------------
+# observation.state is still assembled from /joint_states, joint-space, 8 DOF
+# -- unchanged from the joint-space 1arm_2cam.yaml. Only the ACTION
+# representation differs for this checkpoint.
+joint_state_topic: "/joint_states"
+
+joint_names:
+  model_joint_order:
+    - finger_joint1
+    - joint1
+    - joint2
+    - joint3
+    - joint4
+    - joint5
+    - joint6
+    - joint7
+
+  controller_joint_order:
+    - joint1
+    - joint2
+    - joint3
+    - joint4
+    - joint5
+    - joint6
+    - joint7
+    - finger_joint1
+
+  arm_mapping:
+    r: right
+
+  state_features:
+    - position
+
+# -----------------------------------------------------------------------------
+# Arm Configuration — EE-space action
+# -----------------------------------------------------------------------------
+# action_start/action_end still slice the model's raw output array; the slice
+# width is 8 here too, just different semantics
+# ([x, y, z, qx, qy, qz, qw, gripper] instead of 8 joint positions).
+# msg_type: CommandedEEPose switches inference_node._publish_action onto the
+# EE publish path (ee_pose_limiter.py) instead of action_limiter.py.
+arms:
+  right:
+    msg_type: "CommandedEEPose"
+    command_topic: "/commanded_ee_right"
+    action_start: 0
+    action_end: 8
+    # Passed to EEPoseLimiter — UNVALIDATED default, see ee_pose_limiter.py.
+    max_position_delta_m: 0.005
+
+# -----------------------------------------------------------------------------
+# Camera Configuration
+# -----------------------------------------------------------------------------
+cameras:
+  fps: 30.0
+  mapping:
+    "/cam_chest/image_raw/compressed": "chest"
+    "/cam_wrist_r/image_raw/compressed": "wrist_r"
+
+# -----------------------------------------------------------------------------
+# Safety
+# -----------------------------------------------------------------------------
+# action_limiter.py's max_relative_target/joint_limits DO NOT APPLY to this
+# EE-space arm (no joint names to key off of) -- left null/unset here
+# deliberately; EE-space limiting is entirely in ee_pose_limiter.py via
+# arms.right.max_position_delta_m above.
+safety:
+  max_relative_target: null
+  joint_limits: null
