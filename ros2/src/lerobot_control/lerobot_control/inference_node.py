@@ -128,10 +128,32 @@ class LeRobotInferenceNode(Node):
             self._ee_limiters: dict = {
                 arm_name: EEPoseLimiter(
                     max_position_delta_m=arm_config.get("max_position_delta_m", 0.005),
+                    position_offset_m=arm_config.get("position_offset_m"),
+                    position_scale=arm_config.get("position_scale"),
                 )
                 for arm_name, arm_config in self.arms_config.items()
                 if arm_config.get("msg_type") == "CommandedEEPose"
             }
+
+            # A position offset silently moves every command the arm receives,
+            # so say so at startup rather than leaving it to be inferred from
+            # the arm ending up somewhere unexpected.
+            for arm_name, limiter in self._ee_limiters.items():
+                if limiter.position_offset_m is not None:
+                    dx, dy, dz = limiter.position_offset_m
+                    self.get_logger().warn(
+                        f"[EE] arm '{arm_name}' position_offset_m active: "
+                        f"dx={dx:+.4f} dy={dy:+.4f} dz={dz:+.4f} m — every "
+                        f"commanded pose is shifted by this, retreats included"
+                    )
+                if limiter.position_scale is not None:
+                    sx, sy, sz = limiter.position_scale
+                    self.get_logger().warn(
+                        f"[EE] arm '{arm_name}' position_scale active: "
+                        f"sx={sx:.3f} sy={sy:.3f} sz={sz:.3f} — displacement "
+                        f"from the run's first pose is multiplied, so commands "
+                        f"go outside the policy's trained range in both directions"
+                    )
 
             # Unified split-timer architecture for all models:
             #   _obs_update:    preprocess (+ inference for non-VLA)

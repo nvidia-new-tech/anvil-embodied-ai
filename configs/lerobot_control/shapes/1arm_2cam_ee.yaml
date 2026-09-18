@@ -101,6 +101,35 @@ arms:
     action_end: 8
     # Passed to EEPoseLimiter — UNVALIDATED default, see ee_pose_limiter.py.
     max_position_delta_m: 0.1
+    # Constant [dx, dy, dz] metres added to every commanded pose, in the
+    # `world` frame. Unset/all-zero = off. Negative dz is toward the table.
+    #
+    # For a policy that tracks its trajectory faithfully but lands
+    # consistently shallow — a frame offset between the demonstrations and
+    # this rig. It shifts the WHOLE trajectory, retreats and approach
+    # included, so it is not "press harder at the grasp"; the arm also
+    # travels that much lower everywhere else.
+    #
+    # Nothing bounds this value, and ee_pose_limiter has no table model.
+    # Dry-run it (point command_topic at an unsubscribed name, read the
+    # commands back) and compare the lowest commanded z against the arm's
+    # real clearance before running it for real.
+    position_offset_m: [0.0, 0.0, 0.0]
+    # Per-axis gain [sx, sy, sz] on displacement away from the run's first
+    # commanded pose: out = pivot + (commanded - pivot) * scale. All-ones = off.
+    #
+    # Use when the SHAPE of the motion is too small — the arm dips, just not
+    # far enough. If it is uniformly shallow instead, that is a frame offset:
+    # position_offset_m above fixes it without distorting the trajectory.
+    #
+    # A gain stretches in both directions (deeper reach, higher retreat),
+    # amplifies the policy's own tracking error, and pushes commands outside
+    # the range the policy was trained and validated over — so "reachable and
+    # collision-free" no longer follows from the training data. It also scales
+    # consecutive-command deltas, so max_position_delta_m clamps more often.
+    #
+    # Dry-run and check the lowest commanded z against real clearance.
+    position_scale: [1.0, 1.0, 1.3]
 
 # -----------------------------------------------------------------------------
 # Camera Configuration
