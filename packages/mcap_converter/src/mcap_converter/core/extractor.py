@@ -14,6 +14,30 @@ from .reader import McapReader
 # Shared Utilities
 # =============================================================================
 
+# Fixed action feature names for msg_type="CommandedEEPose" -- a Cartesian
+# end-effector action space instead of joint positions. Order matches the
+# fixed field order pulled from the anvil_msgs/CommandedEEPose message.
+EE_POSE_ACTION_NAMES = [
+    "ee_pos_x", "ee_pos_y", "ee_pos_z",
+    "ee_quat_x", "ee_quat_y", "ee_quat_z", "ee_quat_w",
+    "ee_gripper",
+]
+
+
+def ee_pose_to_action_vector(ros_msg) -> np.ndarray:
+    """Flatten an anvil_msgs/CommandedEEPose message into the fixed 8-D
+    [pos_x, pos_y, pos_z, quat_x, quat_y, quat_z, quat_w, gripper] vector
+    matching EE_POSE_ACTION_NAMES. No reordering applies (unlike
+    Float64MultiArray's joint_order) -- the field layout is fixed by the
+    message schema itself.
+    """
+    p = ros_msg.pose.position
+    q = ros_msg.pose.orientation
+    return np.array(
+        [p.x, p.y, p.z, q.x, q.y, q.z, q.w, ros_msg.gripper],
+        dtype=np.float64,
+    )
+
 
 def parse_joint_name(
     joint_name: str,
@@ -340,6 +364,22 @@ class DataExtractor:
         topic_cfg = self.config.action_topics[topic]
         robot = topic_cfg.arm
         key = self._get_joint_state_key("action", robot)
+
+        if topic_cfg.msg_type == "CommandedEEPose":
+            vec = ee_pose_to_action_vector(ros_msg)
+            if key not in extracted_data:
+                extracted_data[key] = {
+                    "timestamp": [],
+                    "joint_names": list(EE_POSE_ACTION_NAMES),
+                    "position": [],
+                    "velocity": [],
+                    "effort": [],
+                }
+            extracted_data[key]["timestamp"].append(time_s)
+            extracted_data[key]["position"].append(vec.tolist())
+            extracted_data[key]["velocity"].append([0.0] * len(vec))
+            extracted_data[key]["effort"].append([0.0] * len(vec))
+            return
 
         # Extract position data from Float64MultiArray.data
         positions = list(ros_msg.data)
@@ -1287,6 +1327,19 @@ class BufferedStreamExtractor:
         topic_cfg = self.config.action_topics[topic]
         robot = topic_cfg.arm
         key = ("action", robot)
+
+        if topic_cfg.msg_type == "CommandedEEPose":
+            vec = ee_pose_to_action_vector(ros_msg)
+            if key not in joint_buffers:
+                joint_buffers[key] = {
+                    "buffer": deque(),
+                    "joint_names": list(EE_POSE_ACTION_NAMES),
+                }
+            pos = vec.astype(np.float32)
+            empty = np.array([], dtype=np.float32)
+            self._last_known_action[robot] = pos.copy()
+            joint_buffers[key]["buffer"].append((timestamp, pos, empty, empty))
+            return
 
         # Extract position data from Float64MultiArray.data
         positions = list(ros_msg.data)

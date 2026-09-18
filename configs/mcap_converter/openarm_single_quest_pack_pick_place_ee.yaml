@@ -1,0 +1,88 @@
+# =============================================================================
+# OpenArm MCAP to LeRobot Conversion Configuration — pack-pick-place, EE-space action (8-D)
+# =============================================================================
+# Same session as openarm_single_quest_pack_pick_place.yaml, but the ACTION
+# is Cartesian end-effector pose + gripper (from /ee_pose_right,
+# anvil_msgs/CommandedEEPose) instead of joint positions. observation.state
+# stays joint-space (proprioception from /joint_states) -- only the action
+# representation changes.
+#
+# Action: [pos_x, pos_y, pos_z, quat_x, quat_y, quat_z, quat_w, gripper]
+# (fixed order, see extractor.py::ee_pose_to_action_vector -- no joint_order
+# reordering applies to pose fields).
+#
+# Deploying a model trained on this action space requires the real robot's
+# ARMS_CONTROL_CONFIG_FILE to have `commanded_ee: true` (see
+# anvil-loader/config/openarm_quest_teleop_commanded_ee.yaml for the
+# reference teleop config using this same flag) AND the inference ROS2 node
+# to publish CommandedEEPose messages instead of Float64MultiArray -- that
+# publisher change has NOT been made yet as of this config's creation.
+# =============================================================================
+
+robot_state_topic: "/joint_states"
+
+
+# =============================================================================
+# Joint Name Parsing (observation only -- action comes from /ee_pose_right)
+# =============================================================================
+
+joint_names:
+  separator: "_"
+
+  source:
+    follower: observation
+
+  arms:
+    r: right
+
+
+# =============================================================================
+# Action Topics
+# =============================================================================
+
+action_topics:
+  "/ee_pose_right":
+    arm: "right"
+    msg_type: "CommandedEEPose"
+
+action_from_observation: false
+
+
+# =============================================================================
+# Camera Configuration
+# =============================================================================
+
+camera_topics:
+  - "/cam_chest/image_raw/compressed"
+  - "/cam_wrist_r/image_raw/compressed"
+
+camera_topic_mapping:
+  "/cam_chest/image_raw/compressed": "chest"
+  "/cam_wrist_r/image_raw/compressed": "wrist_r"
+
+image_resolution: [320, 180]   # 16:9, exact ÷4 of 1280x720 -- no letterbox padding
+
+
+# =============================================================================
+# Feature Extraction
+# =============================================================================
+
+observation_feature_mapping:
+  state: "position"
+  others: []
+
+action_feature_mapping:
+  state: "position"
+  others: []
+
+
+# =============================================================================
+# Quick Reference
+# =============================================================================
+#
+# Output (LeRobot dataset):
+#   observation.state  [8]  = [right_joints...]  (from follower, joint-space)
+#   action             [8]  = [pos_x, pos_y, pos_z, quat_x, quat_y, quat_z,
+#                               quat_w, gripper]  (from /ee_pose_right)
+#   observation.images.chest    [3, 180, 320]
+#   observation.images.wrist_r  [3, 180, 320]

@@ -98,6 +98,7 @@ class ConfigLoader:
                 result[topic] = ActionTopicConfig(
                     arm=value.get("arm", ""),
                     joint_order=value.get("joint_order", []),
+                    msg_type=value.get("msg_type", "Float64MultiArray"),
                 )
             else:
                 raise ValueError(

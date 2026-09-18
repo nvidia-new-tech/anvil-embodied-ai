@@ -7,6 +7,7 @@ from typing import Any, Dict, List
 from lerobot.datasets.lerobot_dataset import LeRobotDataset
 
 from ..config.schema import DEFAULT_DATA_CONFIG, DataConfig
+from .extractor import EE_POSE_ACTION_NAMES
 
 
 def _patch_resume_video_continuation(dataset: LeRobotDataset) -> None:
@@ -330,6 +331,15 @@ class LeRobotWriter:
         # Check if multi-robot (has named robots like 'left', 'right')
         robots = sorted([r for r in joint_names.keys() if r])
 
+        # action_topics with msg_type="CommandedEEPose" give action a fixed,
+        # non-joint name/shape independent of observation.state's joint
+        # names -- see extractor.py::ee_pose_to_action_vector.
+        uses_ee_pose_action = any(
+            cfg.msg_type == "CommandedEEPose" for cfg in self.config.action_topics.values()
+        )
+        action_names = list(EE_POSE_ACTION_NAMES) if uses_ee_pose_action else None
+        action_num = len(action_names) if action_names is not None else None
+
         if robots:
             # Multi-robot: create combined features
             # Concatenate joint names in sorted order (left, right)
@@ -351,8 +361,8 @@ class LeRobotWriter:
             # Combined action
             features["action"] = {
                 "dtype": "float32",
-                "shape": (num_joints,),
-                "names": all_joint_names,
+                "shape": (action_num if action_names is not None else num_joints,),
+                "names": action_names if action_names is not None else all_joint_names,
             }
 
             # Additional observation features (from observation_feature_mapping.others)
@@ -383,8 +393,8 @@ class LeRobotWriter:
 
             features["action"] = {
                 "dtype": "float32",
-                "shape": (num_joints,),
-                "names": names,
+                "shape": (action_num if action_names is not None else num_joints,),
+                "names": action_names if action_names is not None else names,
             }
 
             # Additional observation features

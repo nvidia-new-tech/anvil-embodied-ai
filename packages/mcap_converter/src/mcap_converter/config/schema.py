@@ -73,10 +73,20 @@ class ActionTopicConfig:
             arm="left",
             joint_order=["joint1", "joint2", ..., "joint7", "finger_joint1"]
         )
+
+    Set msg_type="CommandedEEPose" for a Cartesian end-effector action space
+    instead of joint positions -- reads anvil_msgs/CommandedEEPose
+    (pose.position.{x,y,z}, pose.orientation.{x,y,z,w}, gripper) into a fixed
+    8-D vector [pos_x, pos_y, pos_z, quat_x, quat_y, quat_z, quat_w, gripper].
+    joint_order is ignored in this mode (no reordering applies to pose fields).
     """
 
     # Arm identifier (e.g., "left", "right")
     arm: str = ""
+
+    # "Float64MultiArray" (default, joint positions) or "CommandedEEPose"
+    # (Cartesian end-effector pose + gripper).
+    msg_type: str = "Float64MultiArray"
 
     # Explicit joint ordering for the Float64MultiArray.data array.
     # Maps each index position to a joint_id name.
