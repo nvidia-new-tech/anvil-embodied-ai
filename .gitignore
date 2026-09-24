@@ -119,9 +119,12 @@ configs/lerobot_control/inference_pi05_*.yaml
 credentials.json
 secrets.yaml
 
-# Local Claude configuration
+# Local Claude configuration. Skills and CLAUDE.md are deliberately NOT local:
+# they carry the workflows and the safety rules for this rig, so they have to
+# travel with the repo — a fresh clone without them is a clone that does not
+# know the arm homes on `compose up`.
 .claude/*
-CLAUDE.md
+!.claude/skills/
 CLAUDE_GLOBAL.md
 docs/claude_journal/
 rsync_raw_dataset.sh
