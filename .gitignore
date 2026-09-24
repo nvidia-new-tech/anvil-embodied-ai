@@ -121,6 +121,9 @@ secrets.yaml
 
 # Local Claude configuration
 .claude/*
+# ...except team-shared skills (procedural docs, no secrets/local settings)
+!.claude/skills/
+!.claude/skills/**
 CLAUDE.md
 CLAUDE_GLOBAL.md
 docs/claude_journal/
