@@ -55,9 +55,9 @@ inference_tuning:
 
   # VLA only (pi0 / pi05 / smolvla); always enabled for those.
   rtc:
-    inference_delay: 10
+    inference_delay: 6
     queue_trigger_threshold: 50
-    execution_horizon: 16
+    execution_horizon: 20
     max_guidance_weight: 10.0
     prefix_attention_schedule: EXP
 
