@@ -131,7 +131,7 @@ Additional delta flags:
 - **Diffusion** → `ACTION: MIN_MAX`. Diffusion clips denoised actions to ±1 at every step (`clip_sample=True`); `MEAN_STD` silently truncates extreme actions.
 - **ACT / SmolVLA / Pi0 / Pi0.5** → `ACTION: MEAN_STD`
 
-> **Pi0.5 note:** Pi0.5's default normalization is `QUANTILE10`, which requires `q01`/`q99` fields in `stats.json`. Datasets converted with `mcap-convert` do not include these. Use `MEAN_STD` instead (recommended), or see [Pi0.5](#pi05) for the quantile augmentation option.
+> **Pi0.5 note:** `mcap-convert` already produces `q01/q10/q50/q90/q99` in `stats.json`, so Pi0.5's default `QUANTILE10` normalization works without any augmentation step. Use `MEAN_STD` anyway — it's the validated, working setting for this project's datasets (see [Pi0.5](#pi05)); `QUANTILE10` divides by `q99−q01`, which can blow up on a near-constant dimension (e.g. a hold-position idle-arm fallback) and has caused training divergence here before.
 
 ---
 
@@ -459,24 +459,9 @@ uv run anvil-trainer \
 
 **Normalization:**
 
-Pi0.5's default normalization is `QUANTILE10`, which requires `q01`/`q99` stats not produced by `mcap-convert`. Two options:
+`mcap-convert` already produces `q01/q10/q50/q90/q99` in `stats.json`, so Pi0.5's default `QUANTILE10` normalization works out of the box with no augmentation step needed.
 
-**Option A — Override (recommended for Anvil datasets)**
-
-Pass `MEAN_STD` for actions and states, which uses the existing mean/std stats. This is the approach shown in the command above.
-
-**Option B — Augment the dataset with quantile stats**
-
-```bash
-uv run python -c "
-from lerobot.datasets.v30.augment_dataset_quantile_stats import main
-main()
-" -- --repo-id=local/your-dataset
-```
-
-> **Warning:** this modifies the dataset in-place. Back up first: `cp -r data/datasets/my-dataset data/datasets/my-dataset.bak`
-
-After augmentation you can omit `--policy.normalization_mapping` and use the default `QUANTILE10`.
+**Use `MEAN_STD` for actions and states anyway** (the approach shown in the command above) — it's the validated, working setting for this project's datasets. `QUANTILE10` divides by `q99−q01` per dimension, which amplifies enormously on a near-constant dimension (e.g. a hold-position idle-arm fallback: one case measured a `q99-q01` of `5.69e-06`, a ~175,000× amplification) and has caused training to diverge in this project before. If a dataset has any near-constant action dimension, `MEAN_STD` isn't automatically safe either — check `scripts/floor_degenerate_stats.py` if divergence shows up.
 
 ---
 

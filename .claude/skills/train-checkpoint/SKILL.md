@@ -14,7 +14,37 @@ result, not val loss (val loss has repeatedly picked the wrong checkpoint in thi
 repo's history: a lower-loss earlier step performed worse on the physical robot
 than a later, higher-loss one).
 
+**Ask, don't assume.** Don't silently pick the dataset, policy type, steps,
+batch size, or promotion target. At each "Checkpoint" below, you MUST
+actually stop and ask a real question (e.g. the AskUserQuestion tool, or a
+plain question in chat if that tool isn't available) and wait for the answer
+before continuing — launching the job (or promoting the checkpoint) and then
+*mentioning* the choice in a summary does not satisfy this; by then the
+GPU-hours are already spent or the checkpoint is already public.
+
+This applies even when auto-mode is active and even when the task looks
+pre-scoped or low-stakes (a "just a quick test run" framing is exactly the
+case where a bad default goes unnoticed). If you truly cannot ask, say so
+explicitly and mark the run/promotion as unconfirmed in your report rather
+than presenting it as reviewed.
+
 ## Step 1 — Pick the recipe
+
+**Checkpoint — ask before launching:** use AskUserQuestion with these
+selections (don't fold them into one free-text question):
+
+- **Dataset** (single-select): list candidate dataset paths under
+  `/srv/shared/datasets/anvil/lerobot/` that plausibly match the task (e.g.
+  most-recently-modified, or matching a name the user mentioned) — don't
+  default to "the last one we touched" without the user picking it.
+- **Policy** (single-select): "SmolVLA", "pi0.5", "GR00T" — state which recipe
+  each maps to, let the user pick.
+- **Steps / save_freq** (single-select with a suggested default like "5000 /
+  1000, matches prior runs on this task" plus room for a custom value via free
+  text) — don't silently reuse "5000 steps like last time" without the user
+  confirming it still applies.
+- **job_name / task-description**: give a suggested value derived from the
+  dataset name/task, plus let the user type their own via free text.
 
 Default to **full data, no split** unless you specifically need val/test:
 `--split-ratio=1,0,0`. This is not the trainer's own default — omitting it
@@ -136,7 +166,11 @@ completes.
 
 Do **not** promote a checkpoint just because training finished cleanly. Promote
 only once it's been tested on the physical robot and the result is worth keeping
-around for others:
+around for others.
+
+**Checkpoint — ask before promoting:** confirm which checkpoint step, and that
+real-robot testing actually happened (ask for the result if not already
+stated) — never promote automatically off a training-completion signal alone.
 
 ```bash
 mkdir -p /srv/shared/model_zoo/anvil/<dataset>/<policy>_<dataset>_downstream/checkpoints/<step>

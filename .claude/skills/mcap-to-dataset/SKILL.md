@@ -12,6 +12,25 @@ dataset_card.yaml, landing in `/srv/shared/datasets/anvil/lerobot/<task>_<date>_
 Every step here has caused a real bug in this repo's history — read Common Mistakes
 before running, not after.
 
+**Ask, don't assume.** This pipeline has several points where a wrong silent
+default has corrupted data or broken training in the past. At each "Checkpoint"
+below, you MUST actually stop and ask a real question (e.g. the
+AskUserQuestion tool, or a plain question in chat if that tool isn't
+available) and wait for the answer before continuing to the next step. A
+checkpoint is not satisfied by proceeding and then *mentioning* what you did
+in a final summary — by the time you report, the config is already written or
+the conversion already ran, and the user is confirming your work, not making
+the decision.
+
+This applies even when auto-mode is active, even when the task looks
+pre-scoped or low-stakes (a "just a test/dummy dataset" framing is exactly the
+case where a bad default goes unnoticed), and even when every value can be
+correctly derived from the raw MCAP data — deriving something correctly and
+getting sign-off on it before acting are different things. If you truly
+cannot ask (no user available at all, e.g. fully unattended batch job), say so
+explicitly and treat every checkpoint's default as unconfirmed in your report,
+rather than presenting the result as reviewed.
+
 ## Step 1 — Copy raw data to shared storage
 
 ```bash
@@ -42,6 +61,28 @@ Decode a handful of messages from one episode (don't need mcap-valid for this, j
   Check the actual topic list; don't assume from the task name.
 - **fps**: cameras almost always run ~60Hz; use `--fps 30` (exact ÷2, matches
   every session in this repo's history) unless you have a specific reason not to.
+
+**Checkpoint — ask before writing the config:** use AskUserQuestion with these
+selections (don't fold them into one free-text question):
+
+- **Cameras** (multiSelect): one option per camera topic found, pre-described
+  with its native resolution and proposed downscale. Let the user pick which
+  to include, don't default to "all."
+- **Arm(s)** (multiSelect if bimanual rig, single-select if only one arm has
+  real data): one option per arm found, noting whether it's genuinely driven
+  or only recorded-idle. If only one arm has real commands, still confirm
+  single-arm vs hold-position-fallback rather than assuming.
+- **Action space** (single-select): "Joint-space (Float64MultiArray)" vs
+  "EE-space (CommandedEEPose)" — state which one the raw topics actually show,
+  but let the user confirm rather than silently trusting the detection.
+
+fps does not need a question — use the proposed `--fps 30` (or native fps if
+already ≤30) automatically and just state it in the summary.
+
+Task description: give a suggested wording as one of the options, plus let the
+user type their own via free text (AskUserQuestion's "Other" always allows
+this) — don't finalize wording without either an explicit pick or custom
+input.
 
 ## Step 3 — Quality scan
 
@@ -97,7 +138,9 @@ action_topics:
 
 Task description: write it to not imply a fixed order/sequence unless the
 demonstrations actually follow one consistently — check a few episodes' order
-before assuming "A then B".
+before assuming "A then B". Draft the wording and show it to the user for
+approval before it goes in the config — don't finalize task description
+phrasing unilaterally.
 
 ## Step 5 — Convert
 
@@ -151,6 +194,11 @@ repo; the fix cost a full reconversion.
 ```bash
 uv run dataset-valid --root /srv/shared/datasets/anvil/lerobot/<name>
 ```
+
+**Checkpoint — before running conversion:** show the finished config (or a
+diff from the template) to the user and get a go-ahead, especially for
+`--skip-episode-idx` and `--include-flagged` choices — these silently drop
+episodes if wrong.
 
 Then write `dataset_card.yaml` next to it — fields: `name`, `task`, `description`,
 episodes/frames/fps, cameras, native resolution, `state_dim`/`action_dim`,
