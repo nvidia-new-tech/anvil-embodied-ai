@@ -20,6 +20,13 @@
 
 ---
 
+> **跑這台實體機器人？** 先讀 [`../anvil-loader/README.md`](../anvil-loader/README.md)
+> 和 [`../anvil-loader/HANDOFF.md`](../anvil-loader/HANDOFF.md) — 手臂安全、
+> 兩種推論模式的差別、以及這套系統幾乎全是靜默失敗這件事都在那裡。
+> 這份 README 講的是 repo 本身。
+
+---
+
 ## 📢 News
 
 - **2026-05-08** — Upgraded to LeRobot v0.5.1.
