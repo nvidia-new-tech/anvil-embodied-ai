@@ -1,0 +1,35 @@
+# NVIDIA Jetson AGX Thor (JetPack 7) override for the `inference` service.
+# Layer it on either base file:
+#
+#   docker compose -f docker-compose.yml -f docker-compose.thor.yml ...
+#   docker compose -f docker-compose.fake-hardware.yml -f docker-compose.thor.yml ...
+#
+# or use ./scripts/run_inference.sh --thor, which does this for you.
+#
+# GPU: the base files reserve the GPU with `deploy.resources...driver: nvidia`,
+# which is the `--gpus` path. On Thor that path is refused outright ("invoking the
+# NVIDIA Container Runtime Hook directly ... is not supported"), and
+# `runtime: nvidia` alone starts the container with no driver visible — torch then
+# fails with "Found no NVIDIA driver on your system". The GPU is passed as a CDI
+# device instead, which needs the host spec generated once:
+#
+#   sudo nvidia-ctk cdi generate --output=/etc/cdi/nvidia.yaml
+#   nvidia-ctk cdi list            # must show nvidia.com/gpu=all
+#
+# Regenerate it after a JetPack / driver update.
+#
+# Image: the default ghcr.io/.../lerobot-inference:latest is amd64-only. The
+# thor-cu130-ee tag is built from docker/inference/Dockerfile.thor (torch cu130,
+# sm_110, lerobot[pi,smolvla], anvil_msgs) - see the build command at the top of
+# that file. The older thor-cu130 tag lacks the smolvla extras and anvil_msgs, so
+# SmolVLA checkpoints fail to load on it. Override with IMAGE_TAG if needed.
+services:
+  inference:
+    image: ghcr.io/anvil-robotics/lerobot-inference:${IMAGE_TAG:-thor-cu130-ee}
+    deploy: !reset {}
+    devices:
+      - nvidia.com/gpu=all
+    environment:
+      # docker-compose.fake-hardware.yml does not pass this one through, so the
+      # tokenizer load there tried the network despite a populated HF_CACHE.
+      - HF_HUB_OFFLINE=${HF_HUB_OFFLINE:-}

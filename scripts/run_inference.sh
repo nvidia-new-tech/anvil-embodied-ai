@@ -7,6 +7,8 @@
 #
 # Options:
 #   --fake-hardware    Use docker-compose.fake-hardware.yml (DDS bridge test, no real robot)
+#   --thor             Layer docker-compose.thor.yml: Jetson AGX Thor image + GPU via CDI
+#                      (needs /etc/cdi/nvidia.yaml, see that file)
 #   --dev-src          Mount ros2/src over the image's copy, so the working tree runs
 #                      without a rebuild (see docker-compose.devsrc.yml)
 #   --monitor-enable          Enable monitor profile; for production also sets MONITOR_ENABLE=true,
@@ -53,6 +55,7 @@ REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 # Defaults
 COMPOSE_FILE="${REPO_ROOT}/docker-compose.yml"
 DEV_SRC=false
+THOR=false
 FAKE_HARDWARE=false
 MONITOR_REQUESTED=false
 ECHO_TOPIC_ONLY_REQUESTED=false
@@ -69,6 +72,10 @@ while [[ $# -gt 0 ]]; do
     case "$1" in
         --dev-src)
             DEV_SRC=true
+            shift
+            ;;
+        --thor)
+            THOR=true
             shift
             ;;
         --fake-hardware)
@@ -199,6 +206,13 @@ echo "[run_inference] compose: $(basename "$COMPOSE_FILE") | args: ${PASSTHROUGH
 # Run docker compose and capture exit code (don't let set -e abort before plotting)
 set +e
 COMPOSE_ARGS=(-f "$COMPOSE_FILE")
+if [[ "$THOR" == true ]]; then
+    COMPOSE_ARGS+=(-f "${REPO_ROOT}/docker-compose.thor.yml")
+    if [[ "$FAKE_HARDWARE" == true ]]; then
+        COMPOSE_ARGS+=(-f "${REPO_ROOT}/docker-compose.fake-hardware.thor.yml")
+    fi
+    echo "[run_inference] --thor: Thor image, GPU passed as CDI device nvidia.com/gpu=all"
+fi
 if [[ "$DEV_SRC" == true ]]; then
     COMPOSE_ARGS+=(-f "${REPO_ROOT}/docker-compose.devsrc.yml")
     echo "[run_inference] --dev-src: running ros2/src from the working tree, not the image"

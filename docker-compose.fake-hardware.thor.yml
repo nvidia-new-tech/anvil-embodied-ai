@@ -1,0 +1,14 @@
+# Thor image for the fake-hardware stack's non-inference services. The default
+# :latest image is amd64-only and will not start on Thor (aarch64).
+#
+# Kept apart from docker-compose.thor.yml on purpose: these services exist only in
+# docker-compose.fake-hardware.yml, and naming them in the general override would
+# add image-only, command-less services to the production stack.
+#
+# ./scripts/run_inference.sh --thor --fake-hardware layers this automatically,
+# after docker-compose.thor.yml (which covers `inference`, incl. the GPU).
+services:
+  mock-robot:
+    image: ghcr.io/anvil-robotics/lerobot-inference:${IMAGE_TAG:-thor-cu130-ee}
+  monitor:
+    image: ghcr.io/anvil-robotics/lerobot-inference:${IMAGE_TAG:-thor-cu130-ee}
