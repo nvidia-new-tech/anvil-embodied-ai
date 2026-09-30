@@ -8,7 +8,7 @@
 # Options:
 #   --fake-hardware    Use docker-compose.fake-hardware.yml (DDS bridge test, no real robot)
 #   --thor             Layer docker-compose.thor.yml: Jetson AGX Thor image + GPU via CDI
-#                      (needs /etc/cdi/nvidia.yaml, see that file)
+#                      (needs a current CDI spec, see that file)
 #   --dev-src          Mount ros2/src over the image's copy, so the working tree runs
 #                      without a rebuild (see docker-compose.devsrc.yml)
 #   --monitor-enable          Enable monitor profile; for production also sets MONITOR_ENABLE=true,

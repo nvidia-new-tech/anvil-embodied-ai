@@ -11,12 +11,19 @@
 # NVIDIA Container Runtime Hook directly ... is not supported"), and
 # `runtime: nvidia` alone starts the container with no driver visible — torch then
 # fails with "Found no NVIDIA driver on your system". The GPU is passed as a CDI
-# device instead, which needs the host spec generated once:
+# device instead. The spec must match THIS boot's device nodes: the
+# /dev/dri/cardN numbering changes between boots, and a stale spec fails every
+# container with 'failed to stat CDI host device "/dev/dri/card0"'. So do NOT
+# write a static /etc/cdi/nvidia.yaml. The toolkit's nvidia-cdi-refresh.service
+# regenerates /var/run/cdi/nvidia.yaml at boot, but on JetPack 7 it runs before
+# the driver is up ("failed to initialize nvml: Driver Not Loaded") and gives up;
+# make it retry, once:
 #
-#   sudo nvidia-ctk cdi generate --output=/etc/cdi/nvidia.yaml
+#   sudo mkdir -p /etc/systemd/system/nvidia-cdi-refresh.service.d
+#   printf '[Unit]\nStartLimitIntervalSec=0\n[Service]\nRestart=on-failure\nRestartSec=5\n' | \
+#     sudo tee /etc/systemd/system/nvidia-cdi-refresh.service.d/10-retry-until-driver.conf
+#   sudo systemctl daemon-reload && sudo systemctl restart nvidia-cdi-refresh.service
 #   nvidia-ctk cdi list            # must show nvidia.com/gpu=all
-#
-# Regenerate it after a JetPack / driver update.
 #
 # Image: the default ghcr.io/.../lerobot-inference:latest is amd64-only. The
 # thor-cu130-ee tag is built from docker/inference/Dockerfile.thor (torch cu130,
