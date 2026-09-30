@@ -1,6 +1,16 @@
+# syntax=docker/dockerfile:1.7
 # Thor-specific ROS2 Jazzy inference image.
 # Keeps the upstream inference flow, but pins PyTorch to cu130 wheels that
 # execute CUDA kernels on NVIDIA Thor / sm_110.
+#
+# Build (SmolVLA / pi need their extras - without `smolvla` the processor fails
+# at model load with "Package `num2words` is required"):
+#
+#   docker build -f docker/inference/Dockerfile.thor \
+#     --build-arg LEROBOT_EXTRAS=pi,smolvla \
+#     -t ghcr.io/anvil-robotics/lerobot-inference:thor-cu130-ee .
+#
+# Run it through docker-compose.thor.yml (GPU is passed via CDI, not --gpus).
 FROM ros:jazzy-ros-base
 
 ARG LEROBOT_VERSION=0.5.1
@@ -32,6 +42,14 @@ RUN pip3 install --break-system-packages --no-cache-dir \
     "torch==${TORCH_VERSION}" \
     "torchvision==${TORCHVISION_VERSION}"
 
+# Every later pip call must keep these exact builds. A generic PyPI torch wheel
+# for aarch64 has no sm_110 kernels, and nothing fails at install time if one
+# sneaks in through an extra's dependency - it only shows up as a CUDA error at
+# inference. pip reads PIP_CONSTRAINT on every invocation.
+RUN printf 'torch==%s\ntorchvision==%s\n' "${TORCH_VERSION}" "${TORCHVISION_VERSION}" \
+      > /etc/pip-torch-constraints.txt
+ENV PIP_CONSTRAINT=/etc/pip-torch-constraints.txt
+
 # Replace Debian-managed Python packaging tools with pip-managed versions.
 # Without this, pip may fail while trying to uninstall Debian's packaging wheel
 # because it has no RECORD file.
@@ -56,6 +74,9 @@ RUN if [ -n "${LEROBOT_EXTRAS}" ]; then \
 # on import. Remove groot lines from policies/__init__.py since we don't use GR00T.
 RUN find /usr/local/lib -path "*/lerobot/policies/__init__.py" -exec sed -i '/groot/d' {} \;
 
+# anvil_msgs provides CommandedEEPose. Without it inference_node.py's import of
+# it fails quietly and the EE-space arm is dropped from the publish path.
+COPY ros2/src/anvil_msgs /workspace/src/anvil_msgs
 COPY ros2/src/lerobot_control /workspace/src/lerobot_control
 COPY configs /workspace/configs
 
