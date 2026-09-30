@@ -23,6 +23,12 @@
 # sm_110, lerobot[pi,smolvla], anvil_msgs) - see the build command at the top of
 # that file. The older thor-cu130 tag lacks the smolvla extras and anvil_msgs, so
 # SmolVLA checkpoints fail to load on it. Override with IMAGE_TAG if needed.
+#
+# torch.compile: on by default here (ANVIL_TORCH_COMPILE, see
+# ros2/src/lerobot_control/lerobot_control/torch_compile.py). Thor's RTC chunk is
+# CPU launch-bound: ~245 ms eager vs ~70 ms compiled. Set ANVIL_TORCH_COMPILE=off
+# to compare against eager. The first start compiles for ~1 min; the caches below
+# persist it in ./.torch_compile_cache so later starts reuse it.
 services:
   inference:
     image: ghcr.io/anvil-robotics/lerobot-inference:${IMAGE_TAG:-thor-cu130-ee}
@@ -30,6 +36,15 @@ services:
     devices:
       - nvidia.com/gpu=all
     environment:
+      - ANVIL_TORCH_COMPILE=${ANVIL_TORCH_COMPILE:-reduce-overhead}
+      # Triton 3.6's bundled ptxas-blackwell is CUDA 12.8 and rejects sm_110a;
+      # torch's own CUDA 13 ptxas supports it.
+      - TRITON_PTXAS_PATH=/usr/local/lib/python3.12/dist-packages/torch/bin/ptxas
+      - TRITON_PTXAS_BLACKWELL_PATH=/usr/local/lib/python3.12/dist-packages/torch/bin/ptxas
+      - TORCHINDUCTOR_CACHE_DIR=/torch_compile_cache/inductor
+      - TRITON_CACHE_DIR=/torch_compile_cache/triton
       # docker-compose.fake-hardware.yml does not pass this one through, so the
       # tokenizer load there tried the network despite a populated HF_CACHE.
       - HF_HUB_OFFLINE=${HF_HUB_OFFLINE:-}
+    volumes:
+      - ./.torch_compile_cache:/torch_compile_cache

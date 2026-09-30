@@ -140,3 +140,6 @@ debug_images/
 tools/benchmark_web/results/*.log
 # Git worktrees
 .worktrees/
+
+# torch.compile / Triton caches (docker-compose.thor.yml)
+.torch_compile_cache/

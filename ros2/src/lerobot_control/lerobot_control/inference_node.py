@@ -43,6 +43,7 @@ from .delta_restore import resolve_action_type, restore_delta_chunk
 from .ee_pose_limiter import EEPoseLimiter
 from .metrics_tracker import MetricsTracker
 from .model_loader import ModelLoader, set_deterministic_mode
+from .torch_compile import maybe_compile_vla
 
 
 class LeRobotInferenceNode(Node):
@@ -443,6 +444,9 @@ class LeRobotInferenceNode(Node):
 
         # VLA models: set up ActionQueue and start background inference thread
         if self._is_vla:
+            # Opt-in (ANVIL_TORCH_COMPILE); warms up before the inference thread
+            # starts so the first live chunk does not pay the compile.
+            maybe_compile_vla(self.model, self.preprocessor, self.task_description, self.device, self.get_logger())
             self._setup_vla_inference()
             self._start_inference_thread()
         else:
